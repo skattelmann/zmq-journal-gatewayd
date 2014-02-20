@@ -47,7 +47,7 @@ int main (void)
     assert(rc == 5555);
 
     // Socket to talk to the query handlers
-    void *backend = zsocket_new (ctx, ZMQ_ROUTER);
+    void *backend = zsocket_new (ctx, ZMQ_DEALER);
     assert(backend);
     rc = zsocket_bind (backend, "ipc://backend");
     assert(rc == 0);
@@ -69,7 +69,6 @@ int main (void)
             printf("<< ERSTER FRAME >>\n");
             zframe_t *query = zframe_recv (frontend);
             printf("<< ZWEITER FRAME >>\n");
-
             zframe_t* frames[2] = { addr , query };
             printf("<< FRAMES EINGELESEN >>\n");
             zthread_new (handler_routine, frames);
@@ -79,8 +78,6 @@ int main (void)
             printf("<< BACKEND >>\n");
             zmsg_t *response = zmsg_new ();
             response = zmsg_recv (backend);
-            zframe_t *own_addr = zmsg_pop (response);
-            zframe_destroy (&own_addr);
             zmsg_send (&response, frontend);
             printf("<< RESPONSE GESENDET >>\n");
         }
