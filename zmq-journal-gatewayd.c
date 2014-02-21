@@ -39,6 +39,8 @@ Args *parse_json(zmsg_t* query_msg, jsmn_parser* json_parser){
     int cmd_len = tokens[1].end - tokens[1].start;
     int since_len = tokens[2].end - tokens[2].start;
 
+    parse_string(parsed_args->cmd, query_string, tokens[1]);
+
     parsed_args->cmd = malloc( sizeof(char) * (cmd_len + 1) );
     strncpy(parsed_args->cmd, query_string + tokens[1].start, cmd_len);
     (parsed_args->cmd)[cmd_len] = '\0';
