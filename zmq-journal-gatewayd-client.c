@@ -1,6 +1,11 @@
 
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
 
 #include "czmq.h"
+#include "zmq.h"
+#include "jsmn.h"
 
 int main(void)
 {
@@ -12,7 +17,9 @@ int main(void)
     zframe_t *frame;
     int more;
 
-    zframe_t *query = zframe_new("ping", 5);
+    //zframe_t *query = zframe_new("ping", 5);
+    char *query_string = "{\"a\": 5}";
+    zframe_t *query = zframe_new(query_string, strlen(query_string)+1);
     zframe_send (&query, client, 0);
 
     zmsg_t *response = zmsg_new ();
