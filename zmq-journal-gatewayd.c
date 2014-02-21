@@ -5,70 +5,74 @@
 
 #include "czmq.h"
 #include "zmq.h"
-#include "jsmn.h"
+#include "jansson.h"
 
-#define TOKEN_PRINT(t) \
-    printf("start: %d, end: %d, type: %d, size: %d\n", (t).start, (t).end, (t).type, (t).size)
+typedef struct RequestMeta {
+    //output format
+    int format;
+    //time window for entries to be sent
+    int since_timestamp;
+    int until_timestamp2;
+    //cursor window for entries to be sent
+    char *cursor1;
+    char *cursor2;
+    //follow entries, get just one entry, only boot with ID, show machine info
+    bool follow;
+    bool discrete;
+    bool boot;
+    int boot_id;
+    bool machine;
+    //send unique entries for specified fields
+    bool unique_entries;
+    char *field;
+    //fields to be matched with
+    char **field_matches;
+} RequestMeta;
 
-typedef struct Args
-{
-    char *cmd;
-    int since;
+typedef struct Args{
+    zframe_t *client_addr;
+    json_t *json_args;
 }Args;
 
-Args *parse_json(zmsg_t* query_msg, jsmn_parser* json_parser){
-    int r;
+Args *parse_json(zmsg_t* query_msg){
+    int rc;
+    int i;
     zframe_t *client_addr = zmsg_pop (query_msg);
     zframe_t *query_frame = zmsg_pop (query_msg);
 
-    size_t frame_size = zframe_size (query_frame);
     char *query_string = zframe_strdup (query_frame);
-    //printf("Query String: %s\n", query_string);
-    assert(query_string[frame_size-1] == '\0');
     zframe_destroy (&query_frame);
-
-    jsmntok_t tokens[frame_size];
-    jsmn_init(json_parser);
-    r = jsmn_parse(json_parser, query_string, tokens, frame_size);
-    assert(r == JSMN_SUCCESS);
-
-    //    int k;
-    //    for(k=0;k<=tokens[0].size;k++) TOKEN_PRINT(tokens[k]);
-
-    Args *parsed_args = malloc(sizeof(Args));
-    int cmd_len = tokens[1].end - tokens[1].start;
-    int since_len = tokens[2].end - tokens[2].start;
-
-    parse_string(parsed_args->cmd, query_string, tokens[1]);
-
-    parsed_args->cmd = malloc( sizeof(char) * (cmd_len + 1) );
-    strncpy(parsed_args->cmd, query_string + tokens[1].start, cmd_len);
-    (parsed_args->cmd)[cmd_len] = '\0';
-
-    char *since_string = malloc( sizeof(char) * (since_len + 1) );
-    strncpy(since_string, query_string + tokens[2].start, since_len);
-    since_string[since_len] = '\0';
-    parsed_args->since = atoi(since_string); 
-    free(since_string);
-
+    json_error_t error;
+    json_t *json_args = json_loads(query_string, 0, &error);
+    assert(json_args != NULL);
     free(query_string);
-    return parsed_args;
+
+    Args *args = malloc( sizeof(Args) );
+    args->client_addr = client_addr;
+    args->json_args = json_args;
+
+    return args;
 }
 
-static void *handler_routine (void *frames) {
+static void *handler_routine (void *args) {
     zctx_t *ctx = zctx_new ();
     void *query_handler = zsocket_new (ctx, ZMQ_DEALER);
     int rc = zsocket_connect (query_handler, "ipc://backend");
     assert(rc == 0);
 
-    zframe_t *addr = * ((zframe_t **) frames);
-    zframe_t *query = * (((zframe_t **) frames) + 1);
+    json_t *json_args = ((Args *) args)->json_args;
 
+    printf("<<PARSED INPUT>>\n");
+    json_dumpf(json_args, stdout, JSON_INDENT(4));
+    printf("\n");
+
+    zframe_t *client_addr = ((Args *) args)->client_addr;
     zframe_t *response1 = zframe_new ("pong", 6);
-    zframe_send (&addr, query_handler, 1);
+
+    printf("<<HANDLER SENDS BACK>>\n");
+    zframe_send (&client_addr, query_handler, 1);
     zframe_send (&response1, query_handler, 0);
 
-    zframe_destroy (&query);
     zmq_close (query_handler);
     return NULL;
 }
@@ -95,29 +99,24 @@ int main (void)
         {backend, 0, ZMQ_POLLIN, 0},
     };
 
-    jsmn_parser json_parser;
-
     zmsg_t *msg;
-    Args *parsed_args; 
+    Args *json_args; 
     while (1) {
         zmq_poll (items, 2, -1);
 
         if (items[0].revents & ZMQ_POLLIN) {
             msg = zmsg_recv (frontend);
-            parsed_args = parse_json(msg, &json_parser);
-            assert(parsed_args);
-
-            printf("FIRST: %s\n", parsed_args->cmd);
-            printf("SECOND: %d\n", parsed_args->since);
-            return 0;
-
-            //zthread_new (handler_routine, parsed_args);
+            printf("<<RECEIVED NEW QUERY>>\n");
+            json_args = parse_json(msg);
+            assert(json_args);
+            zthread_new (handler_routine, json_args);
         }
 
         if (items[1].revents & ZMQ_POLLIN) {
             zmsg_t *response = zmsg_new ();
             response = zmsg_recv (backend);
             zmsg_send (&response, frontend);
+            return 0;
         }
 
     }

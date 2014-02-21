@@ -5,7 +5,6 @@
 
 #include "czmq.h"
 #include "zmq.h"
-#include "jsmn.h"
 
 int main(void)
 {
@@ -17,8 +16,7 @@ int main(void)
     zframe_t *frame;
     int more;
 
-    //zframe_t *query = zframe_new("ping", 5);
-    char *query_string = "{\"a\": 5}";
+    char *query_string = "{\"entries\": 5 , \"time1\" : 123 , \"time2\" : 789}";
     zframe_t *query = zframe_new(query_string, strlen(query_string)+1);
     zframe_send (&query, client, 0);
 
