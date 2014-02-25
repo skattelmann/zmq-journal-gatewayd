@@ -6,9 +6,9 @@
 
 #define HEARTBEAT_INTERVAL 1000 // msecs
 #define SERVER_HEARTBEAT_INTERVAL 5000 // msecs
-#define READY "01"
-#define END "02"
-#define HEARTBEAT "03"
+#define READY "\001"
+#define END "\002"
+#define HEARTBEAT "\003"
 
 /* Do sth with the received message */
 void response_handler(zmsg_t *response){

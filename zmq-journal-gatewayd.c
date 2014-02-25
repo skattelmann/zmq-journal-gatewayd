@@ -6,10 +6,12 @@
 #include "zmq.h"
 #include "jansson.h"
 
-#define HEARTBEAT_INTERVAL 5*1000 // msecs
-#define READY "1"
-#define END "2"
-#define HEARTBEAT "3"
+#define FRONTEND_SOCKET "tcp://*:5555"
+#define BACKEND_SOCKET "ipc://backend"
+#define HANDLER_HEARTBEAT_INTERVAL 5*1000 // msecs
+#define READY "\001"
+#define END "\002"
+#define HEARTBEAT "\003"
 
 typedef struct RequestMeta {
     // for response
@@ -35,7 +37,7 @@ typedef struct RequestMeta {
     char *field;
     //fields to be matched with
     char **field_matches;
-} RequestMeta;
+}RequestMeta;
 
 typedef struct Connection {
     zframe_t *client_ID;
@@ -72,13 +74,21 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     return args;
 }
 
+zmsg_t *build_msg(zframe_t *ID, const char *flag){
+    zmsg_t *msg = zmsg_new();
+    zframe_t *ID_dup = zframe_dup (ID);
+    zframe_t *flag_frame = zframe_new ( flag, strlen(flag) + 1 );
+    zmsg_push (msg, flag_frame);
+    zmsg_push (msg, ID_dup);
+    return msg;
+}
+
 static void *handler_routine (void *_args) {
 
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
     void *query_handler = zsocket_new (ctx, ZMQ_DEALER);
-    int rc = zsocket_connect (query_handler, "ipc://backend");
-    assert(rc == 0);
+    int rc = zsocket_connect (query_handler, BACKEND_SOCKET);
 
     /* send READY to the client */
     zmsg_t *ready = zmsg_new();
@@ -98,7 +108,7 @@ static void *handler_routine (void *_args) {
     tim.tv_sec  = 0;
     tim.tv_nsec = 200000000L;
 
-    uint64_t heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
+    uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
     while (true) {
 
         rc = zmq_poll (items, 1, 0);
@@ -109,7 +119,7 @@ static void *handler_routine (void *_args) {
             printf("<< HANDLER GOT MESSAGE >>\n");
             char *heartbeat_string = zstr_recv (query_handler);
 
-            //if( strcmp(heartbeat_string, HEARTBEAT) ){
+            if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
                 printf("<< HEARTBEAT RECEIVED >>\n");
                 zmsg_t *heartbeat = zmsg_new();
                 zframe_t *client_ID = zframe_dup (args->client_ID);
@@ -118,8 +128,8 @@ static void *handler_routine (void *_args) {
                 zmsg_push (heartbeat, client_ID);
                 zmsg_send (&heartbeat, query_handler);
                 printf("<< HEARTBEAT ANSWERED >>\n");
-                heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
-            //}
+                heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
+            }
             free (heartbeat_string);
         }
 
@@ -153,14 +163,12 @@ int main (void){
     // Socket to talk to clients
     void *frontend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(frontend);
-    int rc = zsocket_bind (frontend, "tcp://*:5555");
-    assert(rc == 5555);
+    int rc = zsocket_bind (frontend, FRONTEND_SOCKET);
 
     // Socket to talk to the query handlers
     void *backend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(backend);
-    rc = zsocket_bind (backend, "ipc://backend");
-    assert(rc == 0);
+    rc = zsocket_bind (backend, BACKEND_SOCKET);
 
     // Setup the poller for frontend and backend
     zmq_pollitem_t items[] = {
