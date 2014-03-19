@@ -14,35 +14,94 @@
 #define HEARTBEAT "\003"
 
 typedef struct RequestMeta {
-    // for response
     zframe_t *client_ID;
-    zframe_t *handler_ID;
     char* client_ID_string;
-    //output format
     const char *format;
-    //time window for entries to be sent
     int since_timestamp;
     int until_timestamp;
-    //cursor window for entries to be sent
-    char *cursor1;
-    char *cursor2;
-    //follow entries, get just one entry, only boot with ID, show machine info
+    char *since_cursor;
+    char *until_cursor;
     bool follow;
     bool discrete;
     bool boot;
-    int boot_id;
+    int boot_ID;
     bool machine;
-    //send unique entries for specified fields
     bool unique_entries;
     char *field;
-    //fields to be matched with
-    char **field_matches;
+    void **field_matches;
 }RequestMeta;
 
 typedef struct Connection {
     zframe_t *client_ID;
     zframe_t *handler_ID;
 }Connection;
+
+char *get_arg_string(json_t *json_args, char *key){
+    json_t *json_string = json_object_get(json_args, key);
+    if( json_string != NULL ){
+        const char *string = json_string_value(json_string);
+        char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
+        strcpy(string_cpy, string);
+        json_decref(json_string);
+        return string_cpy;
+    }
+    else{
+        json_decref(json_string);
+        return NULL;
+    }
+}
+
+void **get_arg_array(json_t *json_args, char *key){
+    json_t *json_array = json_object_get(json_args, key);
+    if( json_array != NULL ){
+        size_t size = json_array_size(json_array);
+        size_t index;
+        json_t *value;
+
+        void **array = (void **) malloc( sizeof(char *) * size );
+        json_array_foreach(json_array, index, value) {
+            const char *json_array_value = json_string_value(value);
+            array[index] = (char *) malloc( sizeof(char) * (strlen(json_array_value)+1) );
+            strcpy(array[index], json_array_value);
+        }
+
+        json_decref(value);
+        json_decref(json_array);
+        return array;
+    }
+    else{
+        json_decref(json_array);
+        return NULL;
+    }
+}
+
+int get_arg_bool(json_t *json_args, char *key){
+    json_t *json_boolean = json_object_get(json_args, key);
+    if( json_boolean != NULL ){
+        int boolean;
+        json_unpack(json_boolean, "b", &boolean);
+        json_decref(json_boolean);
+        return (boolean == 1) ? true : false;
+    }
+    else{
+        json_decref(json_boolean);
+        return false;
+    }
+}
+
+get_arg_int(json_t *json_args, char *key){
+    json_t *json_int = json_object_get(json_args, key);
+    if( json_int != NULL ){
+        int integer = json_number_value(json_int);
+        json_decref(json_int);
+        return integer;
+    }
+    else{
+        json_decref(json_int);
+        /* this will not be used */
+        return -1;
+    }
+}
 
 RequestMeta *parse_json(zmsg_t* query_msg){
 
@@ -60,24 +119,40 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     printf("\n%s\n", print_query);
     free(print_query);
 
-    json_t *format = json_object_get(json_args, "format");
-    json_t *since_timestamp = json_object_get(json_args, "since_timestamp");
-    json_t *until_timestamp = json_object_get(json_args, "until_timestamp");
-
+    /* fill args with arguments from json input */
     RequestMeta *args = malloc( sizeof(RequestMeta) );
     args->client_ID = client_ID;
     args->client_ID_string = zframe_strhex (client_ID);
-    args->format = json_string_value(format);
-    args->since_timestamp = (int) json_number_value(since_timestamp);
-    args->until_timestamp = (int) json_number_value(until_timestamp);
+    args->format = get_arg_string(json_args, "format");
+    args->since_timestamp = get_arg_int(json_args, "since_timestamp");
+    args->until_timestamp = get_arg_int(json_args, "until_timestamp");
+    args->boot_ID = get_arg_int(json_args, "boot_ID");
+    args->since_cursor = get_arg_string(json_args, "since_cursor");
+    args->until_cursor = get_arg_string(json_args, "until_cursor");
+    args->follow = get_arg_bool(json_args, "follow");
+    args->discrete = get_arg_bool(json_args, "discrete");
+    args->boot = get_arg_bool(json_args, "boot");
+    args->machine = get_arg_bool(json_args, "machine");
+    args->unique_entries = get_arg_bool(json_args, "unique_entries");
+    args->field = get_arg_string(json_args, "field");
+    args->field_matches = get_arg_array(json_args, "field_matches"); 
 
+    json_decref(json_args);
     return args;
 }
 
-zmsg_t *build_msg(zframe_t *ID, const char *flag){
+zmsg_t *build_msg_from_flag(zframe_t *ID, const char *flag){
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
     zframe_t *flag_frame = zframe_new ( flag, strlen(flag) + 1 );
+    zmsg_push (msg, flag_frame);
+    zmsg_push (msg, ID_dup);
+    return msg;
+}
+
+zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
+    zmsg_t *msg = zmsg_new();
+    zframe_t *ID_dup = zframe_dup (ID);
     zmsg_push (msg, flag_frame);
     zmsg_push (msg, ID_dup);
     return msg;
@@ -91,11 +166,7 @@ static void *handler_routine (void *_args) {
     int rc = zsocket_connect (query_handler, BACKEND_SOCKET);
 
     /* send READY to the client */
-    zmsg_t *ready = zmsg_new();
-    zframe_t *client_ID = zframe_dup (args->client_ID);
-    zframe_t *ready_frame = zframe_new ( READY, strlen(READY)+1 );
-    zmsg_push (ready, ready_frame);
-    zmsg_push (ready, client_ID);
+    zmsg_t *ready = build_msg_from_flag(args->client_ID, READY);
     zmsg_send (&ready, query_handler);
     printf("<< READY SENT TO %s >>\n", args->client_ID_string);
 
@@ -116,16 +187,10 @@ static void *handler_routine (void *_args) {
 
         /* receive heartbeat and send it back */
         if (items[0].revents & ZMQ_POLLIN){
-            printf("<< HANDLER GOT MESSAGE >>\n");
             char *heartbeat_string = zstr_recv (query_handler);
-
             if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
                 printf("<< HEARTBEAT RECEIVED >>\n");
-                zmsg_t *heartbeat = zmsg_new();
-                zframe_t *client_ID = zframe_dup (args->client_ID);
-                zframe_t *heartbeat_frame = zframe_new ( HEARTBEAT, strlen(HEARTBEAT)+1 );
-                zmsg_push (heartbeat, heartbeat_frame);
-                zmsg_push (heartbeat, client_ID);
+                zmsg_t *heartbeat = build_msg_from_flag(args->client_ID, HEARTBEAT);
                 zmsg_send (&heartbeat, query_handler);
                 printf("<< HEARTBEAT ANSWERED >>\n");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
@@ -135,19 +200,15 @@ static void *handler_routine (void *_args) {
 
         /* timeout from client */
         if (zclock_time () >= heartbeat_at) {
-                zmsg_t *end = zmsg_new();
-                zframe_t *client_ID = zframe_dup (args->client_ID);
-                zframe_t *end_frame = zframe_new ( END, strlen(END)+1 );
-                zmsg_push (end, end_frame);
-                zmsg_push (end, client_ID);
-                zmsg_send (&end, query_handler);
-            printf("<< MISSING HEARTBEAT >>\n");
+            zmsg_t *end = build_msg_from_flag(args->client_ID, END);
+            zmsg_send (&end, query_handler);
+            printf("<< CLIENT TIMEOUT >>\n");
             break;
         }
 
         /* DO SOME WORK HERE */
         nanosleep(&tim , &tim2);
-        printf(">>>> TICK\n");
+        printf(">>>> TICK ...\n");
 
     }
 
@@ -208,17 +269,11 @@ int main (void){
             else{
                 printf("<< HEARTBEAT SENT BY CLIENT: %s >>\n", client_ID_string);
                 zframe_t *heartbeat_frame = zmsg_last (msg);
-                assert(heartbeat_frame != NULL);
-                zmsg_t *heartbeat = zmsg_new ();
-                    
-                assert(lookup->handler_ID != NULL);
-                zframe_t *handler_ID = zframe_dup (lookup->handler_ID);
-
-                assert(handler_ID != NULL);
-                zmsg_push (heartbeat, heartbeat_frame);
-                zmsg_push (heartbeat, handler_ID);
+                zmsg_t *heartbeat = build_msg_from_frame(lookup->handler_ID, heartbeat_frame);
                 zmsg_send (&heartbeat, backend);
+                zframe_destroy (&client_ID);
             }
+            free(client_ID_string);
         }
 
         if (items[1].revents & ZMQ_POLLIN) {

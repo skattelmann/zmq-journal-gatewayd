@@ -23,7 +23,6 @@ void response_handler(zmsg_t *response){
         printf("GOT FRAME DATA: %s\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
-
 }
 
 main(void){
@@ -34,7 +33,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : 123 , \"until_timestamp\" : 789}";
+    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : 123 , \"until_timestamp\" : 789, \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
     zstr_send (client, query_string, 0);
     printf("<< QUERY SENT >>\n");
 
