@@ -34,7 +34,7 @@ main(void){
 
     /* send query */
     char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : 123 , \"until_timestamp\" : 789, \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
-    zstr_send (client, query_string, 0);
+    zstr_send (client, query_string);
     printf("<< QUERY SENT >>\n");
 
     zmq_pollitem_t items [] = {
@@ -51,7 +51,7 @@ main(void){
 
         rc = zmq_poll (items, 1, HEARTBEAT_INTERVAL * ZMQ_POLL_MSEC);
         if (rc == 0){
-            zstr_send (client, HEARTBEAT, 0);
+            zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
             printf("<< HEARTBEAT SENT >>\n");
         }
@@ -71,7 +71,7 @@ main(void){
         }
 
         if (zclock_time () >= heartbeat_at) {
-            zstr_send (client, HEARTBEAT, 0);
+            zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
             printf("<< HEARTBEAT SENT >>\n");
         }
