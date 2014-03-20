@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <time.h>
 #include <systemd/sd-journal.h>
+#include <inttypes.h>
 
 #include "czmq.h"
 #include "zmq.h"
@@ -176,18 +177,53 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
 }
 
 char *get_entry_string( sd_journal *j ){
+
+
     const void *data;
     size_t length;
     size_t total_length = 0;
     int counter = 0, i;
     
+    printf("1\n");
     /* first get the number of fields to allocate memory */
     SD_JOURNAL_FOREACH_DATA(j, data, length)
         counter++;
-    void **entry_fields = (void **) malloc( sizeof(char *) * (counter+1) );
+    void **entry_fields = (void **) malloc( sizeof(char *) * (counter+1+3) );   // +3 for meta information, prefixed by '__'
+
+    printf("2\n");
+    /* then insert the meta information */
+    char *cursor;
+    uint64_t realtime_usec;
+    char *realtime_usec_string = (char *) malloc( sizeof(char) * 65 );          // +1 for \0
+    uint64_t monotonic_usec;
+    char *monotonic_usec_string = (char *) malloc( sizeof(char) * 65 );         // +1 for \0
+    sd_id128_t boot_id;
+    
+    printf("3\n");
+    sd_journal_get_cursor( j, &cursor );
+    sd_journal_get_realtime_usec( j, &realtime_usec );
+    sprintf ( realtime_usec_string, "%" PRId64 , realtime_usec );
+    sd_journal_get_monotonic_usec( j, &monotonic_usec, &boot_id);
+    sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
+
+    entry_fields[0] = (char *) malloc( sizeof(char) * ( strlen("__CURSOR=") + strlen(cursor) + 1));                                 // +1 for \0
+    ((char *)(entry_fields[0]))[0] = '\0';      // initial setup for strcat 
+    strcat ( entry_fields[0], "__CURSOR=" );
+    strcat ( entry_fields[0], cursor );
+    free(cursor);
+    entry_fields[1] = (char *) malloc( sizeof(char) * ( strlen("__REALTIME_TIMESTAMP=") + strlen(realtime_usec_string) + 1));       // +1 for \0
+    ((char *)(entry_fields[1]))[0] = '\0';      // initial setup for strcat
+    strcat ( entry_fields[1], "__REALTIME_TIMESTAMP=" );
+    strcat ( entry_fields[1], realtime_usec_string );
+    free(realtime_usec_string);
+    entry_fields[2] = (char *) malloc( sizeof(char) * ( strlen("__MONOTONIC_TIMESTAMP=") + strlen(monotonic_usec_string) + 1));     // +1 for \0
+    ((char *)(entry_fields[2]))[0] = '\0';      // initial setup for strcat 
+    strcat ( entry_fields[2], "__MONOTONIC_TIMESTAMP=" );
+    strcat ( entry_fields[2], monotonic_usec_string );
+    free(monotonic_usec_string);
 
     /* then get all fields */
-    counter = 0;
+    counter = 3;
     SD_JOURNAL_FOREACH_DATA(j, data, length){
         entry_fields[counter] = (char *) malloc( sizeof(char) * (length+1) );   // +1 for \0
         strcpy(entry_fields[counter], data);
@@ -196,8 +232,9 @@ char *get_entry_string( sd_journal *j ){
         counter++;
     }
 
+    printf("6\n");
     /* then merge them together to one string */
-    char *entry_string = (char *) malloc( sizeof(char) * 2*(total_length + (counter+1))); // counter+1 for additional \n
+    char *entry_string = (char *) malloc( sizeof(char) * 2*(total_length + (counter+1)));   // counter+1 for additional \n
     entry_string[0] = '\0';     // initial setup for strcat
     for(i=0; i<counter; i++){
         strcat ( entry_string, entry_fields[i] );
