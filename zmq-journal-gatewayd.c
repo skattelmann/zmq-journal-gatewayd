@@ -177,20 +177,16 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
 }
 
 char *get_entry_string( sd_journal *j ){
-
-
     const void *data;
     size_t length;
     size_t total_length = 0;
     int counter = 0, i;
     
-    printf("1\n");
     /* first get the number of fields to allocate memory */
     SD_JOURNAL_FOREACH_DATA(j, data, length)
         counter++;
     void **entry_fields = (void **) malloc( sizeof(char *) * (counter+1+3) );   // +3 for meta information, prefixed by '__'
 
-    printf("2\n");
     /* then insert the meta information */
     char *cursor;
     uint64_t realtime_usec;
@@ -199,7 +195,6 @@ char *get_entry_string( sd_journal *j ){
     char *monotonic_usec_string = (char *) malloc( sizeof(char) * 65 );         // +1 for \0
     sd_id128_t boot_id;
     
-    printf("3\n");
     sd_journal_get_cursor( j, &cursor );
     sd_journal_get_realtime_usec( j, &realtime_usec );
     sprintf ( realtime_usec_string, "%" PRId64 , realtime_usec );
@@ -232,7 +227,6 @@ char *get_entry_string( sd_journal *j ){
         counter++;
     }
 
-    printf("6\n");
     /* then merge them together to one string */
     char *entry_string = (char *) malloc( sizeof(char) * 2*(total_length + (counter+1)));   // counter+1 for additional \n
     entry_string[0] = '\0';     // initial setup for strcat
