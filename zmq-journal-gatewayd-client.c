@@ -19,8 +19,8 @@ void response_handler(zmsg_t *response){
     do{
         frame = zmsg_pop (response);
         more = zframe_more (frame);
-        frame_data = (char *) zframe_data (frame);
-        printf("GOT FRAME DATA: %s\n", frame_data);
+        frame_data = zframe_strdup(frame);
+        printf("%s\n\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
 }

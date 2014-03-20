@@ -2,6 +2,8 @@
 #include <string.h>
 #include <assert.h>
 #include <time.h>
+#include <systemd/sd-journal.h>
+
 #include "czmq.h"
 #include "zmq.h"
 #include "jansson.h"
@@ -158,6 +160,55 @@ zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
     return msg;
 }
 
+zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
+    zmsg_t *msg = zmsg_new();
+    zframe_t *ID_dup = zframe_dup (ID);
+    zmsg_pushstr (msg, entry_string);
+    zmsg_push (msg, ID_dup);
+    return msg;
+}
+
+void adjust_journal(RequestMeta *args, sd_journal *j){
+    int r; 
+    /* initial position will be seeked, don't forget to 'next' the journal pointer */
+    if (args->since_cursor != NULL)
+        r = sd_journal_seek_cursor( j, args->since_cursor );
+}
+
+char *get_entry_string( sd_journal *j ){
+    const void *data;
+    size_t length;
+    size_t total_length = 0;
+    int counter = 0, i;
+    
+    /* first get the number of fields to allocate memory */
+    SD_JOURNAL_FOREACH_DATA(j, data, length)
+        counter++;
+    void **entry_fields = (void **) malloc( sizeof(char *) * (counter+1) );
+
+    /* then get all fields */
+    counter = 0;
+    SD_JOURNAL_FOREACH_DATA(j, data, length){
+        entry_fields[counter] = (char *) malloc( sizeof(char) * (length+1) );   // +1 for \0
+        strcpy(entry_fields[counter], data);
+        ((char *)(entry_fields[counter]))[length] = '\0';                       // get sure the \0 is set (this is not always the case)
+        total_length += length+1;                                               // +1 for \0
+        counter++;
+    }
+
+    /* then merge them together to one string */
+    char *entry_string = (char *) malloc( sizeof(char) * 2*(total_length + (counter+1))); // counter+1 for additional \n
+    entry_string[0] = '\0';     // initial setup for strcat
+    for(i=0; i<counter; i++){
+        strcat ( entry_string, entry_fields[i] );
+        strcat ( entry_string, "\n" );
+        free(entry_fields[i]);
+    }
+    free(entry_fields);
+
+    return entry_string;
+}
+
 static void *handler_routine (void *_args) {
 
     RequestMeta *args = (RequestMeta *) _args;
@@ -177,7 +228,13 @@ static void *handler_routine (void *_args) {
     /* just for debugging */
     struct timespec tim, tim2;
     tim.tv_sec  = 0;
-    tim.tv_nsec = 200000000L;
+    tim.tv_nsec = 400000000L;
+
+    /* create and adjust the journal pointer according to the information in args */
+    int r;
+    sd_journal *j;
+    r = sd_journal_open(&j, SD_JOURNAL_LOCAL_ONLY);
+    adjust_journal(args, j);
 
     uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
     while (true) {
@@ -207,8 +264,14 @@ static void *handler_routine (void *_args) {
         }
 
         /* DO SOME WORK HERE */
+        if( sd_journal_next(j) == 1 ){
+            char *entry_string = get_entry_string( j ); 
+            printf("%s\n\n\n", entry_string);
+            zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
+            free (entry_string);
+            zmsg_send (&entry_msg, query_handler);
+        }
         nanosleep(&tim , &tim2);
-        printf(">>>> TICK ...\n");
 
     }
 
