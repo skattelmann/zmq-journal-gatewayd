@@ -10,6 +10,7 @@
 #define END "\002"
 #define HEARTBEAT "\003"
 #define ERROR "\004"
+#define TIMEOUT "\005"
 
 /* Do sth with the received message */
 int response_handler(zmsg_t *response){
@@ -38,7 +39,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"since_cursor\" : \"s=a1fb3bcbba3e4dd1b4a3c19e340948d7;i=2b6a;b=1434cd153c6f4cd0abb131cf31ee0c31;m=828f7c49c;t=4f51f6e0c71c8;x=40df46d35c5e9970\" ,  \"until_cursor\" : \"s=a1fb3bcbba3e4dd1b4a3c19e340948d7;i=2b6c;b=1434cd153c6f4cd0abb131cf31ee0c31;m=837f58013;t=4f51f7d0a2d3f;x=1eb3f5a97835b71a\" }";
+    char *query_string = "{ }";
     zstr_send (client, query_string);
     printf("<< QUERY SENT >>\n");
 

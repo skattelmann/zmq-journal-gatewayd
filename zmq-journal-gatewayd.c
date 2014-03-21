@@ -16,6 +16,7 @@
 #define END "\002"
 #define HEARTBEAT "\003"
 #define ERROR "\004"
+#define TIMEOUT "\005"
 
 int max_length;
 
@@ -288,7 +289,8 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
 void send_flag(RequestMeta *args, void *query_handler, char *flag){
     zmsg_t *end = build_msg_from_flag(args->client_ID, flag);
     zmsg_send (&end, query_handler);
-    zmq_close (query_handler);
+    if(strcmp(flag, HEARTBEAT) != 0 )
+        zmq_close (query_handler);
 }
 
 static void *handler_routine (void *_args) {
@@ -337,8 +339,9 @@ static void *handler_routine (void *_args) {
 
         /* timeout from client */
         if (zclock_time () >= heartbeat_at) {
+            send_flag(args, query_handler, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
-            break;
+            return NULL;
         }
 
         /* do some work here */
