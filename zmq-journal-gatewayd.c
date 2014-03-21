@@ -12,11 +12,15 @@
 #define FRONTEND_SOCKET "tcp://*:5555"
 #define BACKEND_SOCKET "ipc://backend"
 #define HANDLER_HEARTBEAT_INTERVAL 5*1000 // msecs
+#define WAIT_TIMEOUT 100000
+
 #define READY "\001"
 #define END "\002"
 #define HEARTBEAT "\003"
 #define ERROR "\004"
 #define TIMEOUT "\005"
+
+
 
 typedef struct RequestMeta {
     zframe_t *client_ID;
@@ -340,8 +344,10 @@ static void *handler_routine (void *_args) {
             return NULL;
         }
 
-        /* do some work here */
-        if( sd_journal_next(j) == 1 ){
+        rc = sd_journal_next(j);
+
+        /* send new entry if possible */
+        if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if (entry_string == NULL){
                 send_flag(args, query_handler, END);
@@ -351,6 +357,13 @@ static void *handler_routine (void *_args) {
             zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
             free (entry_string);
             zmsg_send (&entry_msg, query_handler);
+        }
+        else if ( rc == 0 && args->follow ){
+            sd_journal_wait( j, (uint64_t) WAIT_TIMEOUT );
+        }
+        else if ( rc < 0 ){
+            send_flag(args, query_handler, ERROR);
+            return NULL;
         }
         else{
             send_flag(args, query_handler, END);
@@ -440,7 +453,9 @@ int main (void){
             else zframe_destroy (&handler_ID);
 
             /* case handler ENDs the query, regulary or because of error (e.g. missing heartbeat) */
-            if( strcmp( handler_response_string, END ) == 0 ){
+            if( strcmp( handler_response_string, END ) == 0 
+                    || strcmp( handler_response_string, ERROR ) == 0 
+                    || strcmp( handler_response_string, TIMEOUT ) == 0){
                 free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
                 printf("<< DELETED ITEM FROM HASH >>\n");
