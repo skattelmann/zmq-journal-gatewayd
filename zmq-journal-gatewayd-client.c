@@ -33,7 +33,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : 123 , \"until_timestamp\" : 789, \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
+    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : \"2012-04-23T18:25:43.511Z\" , \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
     zstr_send (client, query_string);
     printf("<< QUERY SENT >>\n");
 

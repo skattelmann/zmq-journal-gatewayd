@@ -20,8 +20,8 @@ typedef struct RequestMeta {
     zframe_t *client_ID;
     char* client_ID_string;
     const char *format;
-    int since_timestamp;
-    int until_timestamp;
+    uint64_t since_timestamp;
+    uint64_t until_timestamp;
     char *since_cursor;
     char *until_cursor;
     bool follow;
@@ -106,6 +106,39 @@ get_arg_int(json_t *json_args, char *key){
     }
 }
 
+uint64_t get_arg_date(json_t *json_args, char *key){
+    /* follows the human readable form "2012-04-23T18:25:43.511Z" */
+    json_t *json_date = json_object_get(json_args, key);
+    if( json_date != NULL ){
+        const char *string = json_string_value(json_date);
+        char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
+        strcpy(string_cpy, string);
+        json_decref(json_date);
+
+        /* decode the json date to unix epoch time, milliseconds are not considered */
+        struct tm tm;
+        time_t t;
+        char *ptr = strtok(string_cpy, "T.");
+        strptime(ptr, "%Y-%m-%d", &tm);
+        ptr = strtok(NULL, "T.");
+        strptime(ptr, "%H:%M:%S", &tm);
+        tm.tm_isdst = -1;
+
+        printf("year: %d; month: %d; day: %d;\n",
+                        tm.tm_year, tm.tm_mon, tm.tm_mday);
+        printf("hour: %d; minute: %d; second: %d\n",
+                        tm.tm_hour, tm.tm_min, tm.tm_sec);
+        printf("week day: %d; year day: %d\n", tm.tm_wday, tm.tm_yday);
+
+        t = mktime(&tm);
+        return (uint64_t) t;
+    }
+    else{
+        json_decref(json_date);
+        return -1;
+    }
+}
+
 RequestMeta *parse_json(zmsg_t* query_msg){
 
     zframe_t *client_ID = zmsg_pop (query_msg);
@@ -127,8 +160,8 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->client_ID = client_ID;
     args->client_ID_string = zframe_strhex (client_ID);
     args->format = get_arg_string(json_args, "format");
-    args->since_timestamp = get_arg_int(json_args, "since_timestamp");
-    args->until_timestamp = get_arg_int(json_args, "until_timestamp");
+    args->since_timestamp = get_arg_date(json_args, "since_timestamp");
+    args->until_timestamp = get_arg_date(json_args, "until_timestamp");
     args->boot_ID = get_arg_int(json_args, "boot_ID");
     args->since_cursor = get_arg_string(json_args, "since_cursor");
     args->until_cursor = get_arg_string(json_args, "until_cursor");
@@ -185,42 +218,37 @@ char *get_entry_string( sd_journal *j ){
     /* first get the number of fields to allocate memory */
     SD_JOURNAL_FOREACH_DATA(j, data, length)
         counter++;
-    void **entry_fields = (void **) malloc( sizeof(char *) * (counter+1+3) );   // +3 for meta information, prefixed by '__'
+    char *entry_fields[counter+1+3];        // +3 for meta information, prefixed by '__'
 
-    /* then insert the meta information */
+    /* then insert the meta information, memory allocation first */
     char *cursor;
     uint64_t realtime_usec;
-    char *realtime_usec_string = (char *) malloc( sizeof(char) * 65 );          // +1 for \0
+    char realtime_usec_string[65];          // 64 bit +1 for \0
     uint64_t monotonic_usec;
-    char *monotonic_usec_string = (char *) malloc( sizeof(char) * 65 );         // +1 for \0
+    char monotonic_usec_string[65];         // 64 bit +1 for \0
     sd_id128_t boot_id;
     
-    sd_journal_get_cursor( j, &cursor );
+    sd_journal_get_cursor( j, &cursor );    // needs to be free'd afterwards
     sd_journal_get_realtime_usec( j, &realtime_usec );
     sprintf ( realtime_usec_string, "%" PRId64 , realtime_usec );
     sd_journal_get_monotonic_usec( j, &monotonic_usec, &boot_id);
     sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
 
-    entry_fields[0] = (char *) malloc( sizeof(char) * ( strlen("__CURSOR=") + strlen(cursor) + 1));                                 // +1 for \0
-    ((char *)(entry_fields[0]))[0] = '\0';      // initial setup for strcat 
-    strcat ( entry_fields[0], "__CURSOR=" );
-    strcat ( entry_fields[0], cursor );
+    /* until now the prefixes for the meta information are missing */
+    char *meta_information[] = { cursor, realtime_usec_string, monotonic_usec_string };
+    const char *meta_prefixes[] = {"__CURSOR=", "__REALTIME_TIMESTAMP=" , "__MONOTONIC_TIMESTAMP=" };
+    for(i=0; i<3; i++){
+        entry_fields[i] = (char *) malloc( sizeof(char) * ( strlen(meta_prefixes[i]) + strlen(meta_information[i]) + 1));     
+        ((char *)(entry_fields[i]))[0] = '\0';      // initial setup for strcat 
+        strcat ( entry_fields[i], meta_prefixes[i] );
+        strcat ( entry_fields[i], meta_information[i] );
+    }
     free(cursor);
-    entry_fields[1] = (char *) malloc( sizeof(char) * ( strlen("__REALTIME_TIMESTAMP=") + strlen(realtime_usec_string) + 1));       // +1 for \0
-    ((char *)(entry_fields[1]))[0] = '\0';      // initial setup for strcat
-    strcat ( entry_fields[1], "__REALTIME_TIMESTAMP=" );
-    strcat ( entry_fields[1], realtime_usec_string );
-    free(realtime_usec_string);
-    entry_fields[2] = (char *) malloc( sizeof(char) * ( strlen("__MONOTONIC_TIMESTAMP=") + strlen(monotonic_usec_string) + 1));     // +1 for \0
-    ((char *)(entry_fields[2]))[0] = '\0';      // initial setup for strcat 
-    strcat ( entry_fields[2], "__MONOTONIC_TIMESTAMP=" );
-    strcat ( entry_fields[2], monotonic_usec_string );
-    free(monotonic_usec_string);
 
     /* then get all fields */
     counter = 3;
     SD_JOURNAL_FOREACH_DATA(j, data, length){
-        entry_fields[counter] = (char *) malloc( sizeof(char) * (length+1) );   // +1 for \0
+        entry_fields[counter] = (char *) alloca( sizeof(char) * (length+1) );   // +1 for \0
         strcpy(entry_fields[counter], data);
         ((char *)(entry_fields[counter]))[length] = '\0';                       // get sure the \0 is set (this is not always the case)
         total_length += length+1;                                               // +1 for \0
@@ -233,9 +261,7 @@ char *get_entry_string( sd_journal *j ){
     for(i=0; i<counter; i++){
         strcat ( entry_string, entry_fields[i] );
         strcat ( entry_string, "\n" );
-        free(entry_fields[i]);
     }
-    free(entry_fields);
 
     return entry_string;
 }
