@@ -18,8 +18,6 @@
 #define ERROR "\004"
 #define TIMEOUT "\005"
 
-int max_length;
-
 typedef struct RequestMeta {
     zframe_t *client_ID;
     char* client_ID_string;
@@ -66,11 +64,9 @@ void **get_arg_array(json_t *json_args, char *key){
         size_t index;
         json_t *value;
 
-        printf(">>> 2\n");
         void **array = (void **) malloc( sizeof(char *) * size );
         json_array_foreach(json_array, index, value) {
             const char *json_array_value = json_string_value(value);
-        printf(">>> 3\n");
             array[index] = (char *) malloc( sizeof(char) * (strlen(json_array_value)+1) );
             strcpy(array[index], json_array_value);
         }
@@ -312,7 +308,7 @@ static void *handler_routine (void *_args) {
     /* just for debugging */
     struct timespec tim, tim2;
     tim.tv_sec  = 0;
-    tim.tv_nsec = 4000000L;
+    tim.tv_nsec = 400000000L;
 
     /* create and adjust the journal pointer according to the information in args */
     sd_journal *j;
@@ -351,7 +347,7 @@ static void *handler_routine (void *_args) {
                 send_flag(args, query_handler, END);
                 return NULL;
             }
-            printf("%s\n\n\n", entry_string);
+            printf("%s\n\n", entry_string);
             zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
             free (entry_string);
             zmsg_send (&entry_msg, query_handler);
