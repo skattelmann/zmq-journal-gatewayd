@@ -11,7 +11,7 @@
 #define HEARTBEAT "\003"
 
 /* Do sth with the received message */
-void response_handler(zmsg_t *response){
+int response_handler(zmsg_t *response){
     zframe_t *frame;
     char *frame_data;
     int more;
@@ -20,9 +20,13 @@ void response_handler(zmsg_t *response){
         frame = zmsg_pop (response);
         more = zframe_more (frame);
         frame_data = zframe_strdup(frame);
+        if( strcmp( frame_data, END ) == 0 )
+            return 1;
         printf("%s\n\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
+
+    return 0;
 }
 
 main(void){
@@ -33,7 +37,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : \"2012-04-23T18:25:43.511Z\" , \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
+    char *query_string = "{ \"format\" : \"text/plain\" , \"since_timestamp\" : \"2013-03-20T10:05:00.000Z\" , \"field_matches\" : [ \"halli\", \"hallo\" ], \"follow\" : true }";
     zstr_send (client, query_string);
     printf("<< QUERY SENT >>\n");
 
@@ -66,8 +70,13 @@ main(void){
         /* receive message and do sth with it */
         if (items[0].revents & ZMQ_POLLIN){ 
             response = zmsg_recv(client);
-            response_handler(response);
+            rc = response_handler(response);
             zmsg_destroy (&response);
+            /* end of log stream? */
+            if (rc == 1){
+                printf("<< GOT ALL LOGS! >>\n");
+                break;
+            }
         }
 
         if (zclock_time () >= heartbeat_at) {

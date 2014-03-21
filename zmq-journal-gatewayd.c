@@ -16,6 +16,8 @@
 #define END "\002"
 #define HEARTBEAT "\003"
 
+int max_length;
+
 typedef struct RequestMeta {
     zframe_t *client_ID;
     char* client_ID_string;
@@ -43,6 +45,7 @@ char *get_arg_string(json_t *json_args, char *key){
     json_t *json_string = json_object_get(json_args, key);
     if( json_string != NULL ){
         const char *string = json_string_value(json_string);
+        printf(">>> 1\n");
         char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
         strcpy(string_cpy, string);
         json_decref(json_string);
@@ -61,9 +64,11 @@ void **get_arg_array(json_t *json_args, char *key){
         size_t index;
         json_t *value;
 
+        printf(">>> 2\n");
         void **array = (void **) malloc( sizeof(char *) * size );
         json_array_foreach(json_array, index, value) {
             const char *json_array_value = json_string_value(value);
+        printf(">>> 3\n");
             array[index] = (char *) malloc( sizeof(char) * (strlen(json_array_value)+1) );
             strcpy(array[index], json_array_value);
         }
@@ -124,13 +129,7 @@ uint64_t get_arg_date(json_t *json_args, char *key){
         strptime(ptr, "%H:%M:%S", &tm);
         tm.tm_isdst = -1;
 
-        printf("year: %d; month: %d; day: %d;\n",
-                        tm.tm_year, tm.tm_mon, tm.tm_mday);
-        printf("hour: %d; minute: %d; second: %d\n",
-                        tm.tm_hour, tm.tm_min, tm.tm_sec);
-        printf("week day: %d; year day: %d\n", tm.tm_wday, tm.tm_yday);
-
-        t = mktime(&tm);
+        t = mktime(&tm) * 1000000;          // this time needs to be adjusted by 1000000 to fit the journal time
         return (uint64_t) t;
     }
     else{
@@ -148,7 +147,11 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     zframe_destroy (&query_frame);
     json_error_t error;
     json_t *json_args = json_loads(query_string, 0, &error);
-    assert(json_args != NULL);
+
+    /* invalid query */
+    if (json_args == NULL)
+        return NULL;
+
     free(query_string);
 
     char *print_query = json_dumps(json_args, JSON_INDENT(4));
@@ -156,6 +159,7 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     free(print_query);
 
     /* fill args with arguments from json input */
+        printf(">>> 4\n");
     RequestMeta *args = malloc( sizeof(RequestMeta) );
     args->client_ID = client_ID;
     args->client_ID_string = zframe_strhex (client_ID);
@@ -195,9 +199,10 @@ zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
 }
 
 zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
+    int r;
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
-    zmsg_pushstr (msg, entry_string);
+    r = zmsg_pushstr (msg, entry_string);
     zmsg_push (msg, ID_dup);
     return msg;
 }
@@ -205,8 +210,8 @@ zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
 void adjust_journal(RequestMeta *args, sd_journal *j){
     int r; 
     /* initial position will be seeked, don't forget to 'next' the journal pointer */
-    if (args->since_cursor != NULL)
-        r = sd_journal_seek_cursor( j, args->since_cursor );
+    if (args->since_timestamp != -1)
+        r = sd_journal_seek_realtime_usec( j, args->since_timestamp );
 }
 
 char *get_entry_string( sd_journal *j ){
@@ -250,14 +255,14 @@ char *get_entry_string( sd_journal *j ){
     counter = 3;
     SD_JOURNAL_FOREACH_DATA(j, data, length){
         entry_fields[counter] = (char *) alloca( sizeof(char) * (length+1) );   // +1 for \0
-        strcpy(entry_fields[counter], data);
-        ((char *)(entry_fields[counter]))[length] = '\0';                       // get sure the \0 is set (this is not always the case)
+        strncpy(entry_fields[counter], data, length);
+        ((char *)(entry_fields[counter]))[length] = '\0';                       // set the \0 
         total_length += length+1;                                               // +1 for \0
         counter++;
     }
 
     /* then merge them together to one string */
-    char *entry_string = (char *) malloc( sizeof(char) * (total_length + (counter+1)));   // counter+1 for additional \n
+    char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 ));   // counter+1 for additional \n
     entry_string[0] = '\0';         // initial setup for strcat
     for(i=0; i<counter; i++){
         strcat ( entry_string, entry_fields[i] );
@@ -286,7 +291,7 @@ static void *handler_routine (void *_args) {
     /* just for debugging */
     struct timespec tim, tim2;
     tim.tv_sec  = 0;
-    tim.tv_nsec = 400000000L;
+    tim.tv_nsec = 4000000L;
 
     /* create and adjust the journal pointer according to the information in args */
     int r;
@@ -315,13 +320,11 @@ static void *handler_routine (void *_args) {
 
         /* timeout from client */
         if (zclock_time () >= heartbeat_at) {
-            zmsg_t *end = build_msg_from_flag(args->client_ID, END);
-            zmsg_send (&end, query_handler);
             printf("<< CLIENT TIMEOUT >>\n");
             break;
         }
 
-        /* DO SOME WORK HERE */
+        /* do some work here */
         if( sd_journal_next(j) == 1 ){
             char *entry_string = get_entry_string( j ); 
             printf("%s\n\n\n", entry_string);
@@ -329,13 +332,17 @@ static void *handler_routine (void *_args) {
             free (entry_string);
             zmsg_send (&entry_msg, query_handler);
         }
+        else 
+            break; 
+
         nanosleep(&tim , &tim2);
 
     }
 
+    zmsg_t *end = build_msg_from_flag(args->client_ID, END);
+    zmsg_send (&end, query_handler);
     zmq_close (query_handler);
     return NULL;
-
 }
 
 int main (void){
@@ -375,16 +382,18 @@ int main (void){
 
             /* first case: new query */
             if( lookup == NULL ){
-                printf("<< NEW CLIENT >>\n");
                 args = parse_json(msg);
-                assert(args);
-                Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
-                new_connection->client_ID = client_ID;
-                new_connection->handler_ID = NULL;
-                zhash_update (connections, args->client_ID_string, new_connection);
-                printf("<< NEW ID: %s >>\n", args->client_ID_string);
-                assert(rc == 0);
-                zthread_new (handler_routine, (void *) args);
+                /* if args was invalid just do nothing */
+                if (args != NULL){
+                    printf("<< NEW CLIENT >>\n");
+                    Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
+                    new_connection->client_ID = client_ID;
+                    new_connection->handler_ID = NULL;
+                    zhash_update (connections, args->client_ID_string, new_connection);
+                    printf("<< NEW ID: %s >>\n", args->client_ID_string);
+                    assert(rc == 0);
+                    zthread_new (handler_routine, (void *) args);
+                }
             }
             /* second case: heartbeat sent by client */
             else{
@@ -409,6 +418,7 @@ int main (void){
             char *handler_response_string = zframe_strdup (handler_response);
             lookup = (Connection *) zhash_lookup(connections, client_ID_string);
 
+            /* the handler ID is inserted in the connection struct when he answers the first time */
             if( lookup->handler_ID == NULL ){
                 lookup->handler_ID = handler_ID;
                 printf("<< ADDED NEW HANDLER ID >>\n");
