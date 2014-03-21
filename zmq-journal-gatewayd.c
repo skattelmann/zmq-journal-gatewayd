@@ -111,7 +111,7 @@ uint64_t get_arg_date(json_t *json_args, char *key){
     json_t *json_date = json_object_get(json_args, key);
     if( json_date != NULL ){
         const char *string = json_string_value(json_date);
-        char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
+        char string_cpy[strlen(string)+1];
         strcpy(string_cpy, string);
         json_decref(json_date);
 
@@ -238,10 +238,11 @@ char *get_entry_string( sd_journal *j ){
     char *meta_information[] = { cursor, realtime_usec_string, monotonic_usec_string };
     const char *meta_prefixes[] = {"__CURSOR=", "__REALTIME_TIMESTAMP=" , "__MONOTONIC_TIMESTAMP=" };
     for(i=0; i<3; i++){
-        entry_fields[i] = (char *) malloc( sizeof(char) * ( strlen(meta_prefixes[i]) + strlen(meta_information[i]) + 1));     
+        entry_fields[i] = (char *) alloca( sizeof(char) * ( strlen(meta_prefixes[i]) + strlen(meta_information[i]) + 1));     
         ((char *)(entry_fields[i]))[0] = '\0';      // initial setup for strcat 
         strcat ( entry_fields[i], meta_prefixes[i] );
         strcat ( entry_fields[i], meta_information[i] );
+        total_length += strlen(entry_fields[i])+1;  // +1 for \0
     }
     free(cursor);
 
@@ -256,8 +257,8 @@ char *get_entry_string( sd_journal *j ){
     }
 
     /* then merge them together to one string */
-    char *entry_string = (char *) malloc( sizeof(char) * 2*(total_length + (counter+1)));   // counter+1 for additional \n
-    entry_string[0] = '\0';     // initial setup for strcat
+    char *entry_string = (char *) malloc( sizeof(char) * (total_length + (counter+1)));   // counter+1 for additional \n
+    entry_string[0] = '\0';         // initial setup for strcat
     for(i=0; i<counter; i++){
         strcat ( entry_string, entry_fields[i] );
         strcat ( entry_string, "\n" );
@@ -414,7 +415,9 @@ int main (void){
             }
             else zframe_destroy (&handler_ID);
 
+            /* case handler ENDs the query, regulary or because of error (e.g. missing heartbeat) */
             if( strcmp( handler_response_string, END ) == 0 ){
+                free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
                 printf("<< DELETED ITEM FROM HASH >>\n");
             }
