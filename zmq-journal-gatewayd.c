@@ -15,6 +15,7 @@
 #define READY "\001"
 #define END "\002"
 #define HEARTBEAT "\003"
+#define ERROR "\004"
 
 int max_length;
 
@@ -159,7 +160,6 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     free(print_query);
 
     /* fill args with arguments from json input */
-        printf(">>> 4\n");
     RequestMeta *args = malloc( sizeof(RequestMeta) );
     args->client_ID = client_ID;
     args->client_ID_string = zframe_strhex (client_ID);
@@ -208,13 +208,22 @@ zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
 }
 
 void adjust_journal(RequestMeta *args, sd_journal *j){
-    int r; 
     /* initial position will be seeked, don't forget to 'next' the journal pointer */
+    if (args->since_cursor != NULL)
+        sd_journal_seek_cursor( j, args->since_cursor );
     if (args->since_timestamp != -1)
-        r = sd_journal_seek_realtime_usec( j, args->since_timestamp );
+        sd_journal_seek_realtime_usec( j, args->since_timestamp );
 }
 
-char *get_entry_string( sd_journal *j ){
+check_meta_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
+    if ( args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+        return 1;
+    if ( args->until_timestamp < realtime_usec )
+        return 1;
+    return 0;
+}
+
+char *get_entry_string( sd_journal *j, RequestMeta *args){
     const void *data;
     size_t length;
     size_t total_length = 0;
@@ -238,6 +247,10 @@ char *get_entry_string( sd_journal *j ){
     sprintf ( realtime_usec_string, "%" PRId64 , realtime_usec );
     sd_journal_get_monotonic_usec( j, &monotonic_usec, &boot_id);
     sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
+    
+    /* check against args if this entry should be sent */
+    if (check_meta_args(args, cursor, realtime_usec, monotonic_usec) == 1)
+        return NULL;
 
     /* until now the prefixes for the meta information are missing */
     char *meta_information[] = { cursor, realtime_usec_string, monotonic_usec_string };
@@ -272,6 +285,12 @@ char *get_entry_string( sd_journal *j ){
     return entry_string;
 }
 
+void send_flag(RequestMeta *args, void *query_handler, char *flag){
+    zmsg_t *end = build_msg_from_flag(args->client_ID, flag);
+    zmsg_send (&end, query_handler);
+    zmq_close (query_handler);
+}
+
 static void *handler_routine (void *_args) {
 
     RequestMeta *args = (RequestMeta *) _args;
@@ -294,9 +313,8 @@ static void *handler_routine (void *_args) {
     tim.tv_nsec = 4000000L;
 
     /* create and adjust the journal pointer according to the information in args */
-    int r;
     sd_journal *j;
-    r = sd_journal_open(&j, SD_JOURNAL_LOCAL_ONLY);
+    sd_journal_open(&j, SD_JOURNAL_LOCAL_ONLY);
     adjust_journal(args, j);
 
     uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
@@ -310,8 +328,7 @@ static void *handler_routine (void *_args) {
             char *heartbeat_string = zstr_recv (query_handler);
             if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
                 printf("<< HEARTBEAT RECEIVED >>\n");
-                zmsg_t *heartbeat = build_msg_from_flag(args->client_ID, HEARTBEAT);
-                zmsg_send (&heartbeat, query_handler);
+                send_flag(args, query_handler, HEARTBEAT);
                 printf("<< HEARTBEAT ANSWERED >>\n");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
@@ -326,23 +343,21 @@ static void *handler_routine (void *_args) {
 
         /* do some work here */
         if( sd_journal_next(j) == 1 ){
-            char *entry_string = get_entry_string( j ); 
+            char *entry_string = get_entry_string( j, args ); 
+            if (entry_string == NULL){
+                send_flag(args, query_handler, END);
+                return NULL;
+            }
             printf("%s\n\n\n", entry_string);
             zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
             free (entry_string);
             zmsg_send (&entry_msg, query_handler);
         }
-        else 
-            break; 
-
-        nanosleep(&tim , &tim2);
-
+        else{
+            send_flag(args, query_handler, END);
+            return NULL;
+        }
     }
-
-    zmsg_t *end = build_msg_from_flag(args->client_ID, END);
-    zmsg_send (&end, query_handler);
-    zmq_close (query_handler);
-    return NULL;
 }
 
 int main (void){
