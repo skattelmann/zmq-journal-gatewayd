@@ -38,6 +38,7 @@ typedef struct RequestMeta {
     bool unique_entries;
     char *field;
     void **field_matches;
+    bool forwards; 
 }RequestMeta;
 
 typedef struct Connection {
@@ -131,6 +132,7 @@ uint64_t get_arg_date(json_t *json_args, char *key){
         tm.tm_isdst = -1;
 
         t = mktime(&tm) * 1000000;          // this time needs to be adjusted by 1000000 to fit the journal time
+
         return (uint64_t) t;
     }
     else{
@@ -176,6 +178,13 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->unique_entries = get_arg_bool(json_args, "unique_entries");
     args->field = get_arg_string(json_args, "field");
     args->field_matches = get_arg_array(json_args, "field_matches"); 
+    args->forwards = get_arg_bool(json_args, "forwards");
+
+    /* there are some dependencies between certain attributes, these can be set here */
+    if ( args->until_cursor != NULL || args->until_timestamp != -1 )
+        args->follow = false;
+    if ( args->follow == true )
+        args->forwards = true;
 
     json_decref(json_args);
     return args;
@@ -208,17 +217,29 @@ zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
 }
 
 void adjust_journal(RequestMeta *args, sd_journal *j){
-    /* initial position will be seeked, don't forget to 'next' the journal pointer */
-    if (args->since_cursor != NULL)
+    /* initial position will be seeked, don't forget to 'next'  or 'previous' the journal pointer */
+    if ( args->forwards == false && args->until_cursor != NULL)
+        sd_journal_seek_cursor( j, args->until_cursor );
+    else if ( args->forwards == true && args->since_cursor != NULL)
         sd_journal_seek_cursor( j, args->since_cursor );
-    if (args->since_timestamp != -1)
+    else if( args->forwards == false && args->until_timestamp != -1)
+        sd_journal_seek_realtime_usec( j, args->until_timestamp );
+    else if ( args->forwards == true && args->since_timestamp != -1)
         sd_journal_seek_realtime_usec( j, args->since_timestamp );
+    else if (args->forwards == false)
+        sd_journal_seek_tail( j );
+    else if (args->forwards == true)
+        sd_journal_seek_head( j );
 }
 
 check_meta_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
-    if ( args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+    if ( args->forwards == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
         return 1;
-    if ( args->until_timestamp < realtime_usec )
+    if ( args->forwards == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+        return 1;
+    if ( args->forwards == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
+        return 1;
+    if ( args->forwards == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec )
         return 1;
     return 0;
 }
@@ -301,7 +322,7 @@ static void *handler_routine (void *_args) {
     /* send READY to the client */
     zmsg_t *ready = build_msg_from_flag(args->client_ID, READY);
     zmsg_send (&ready, query_handler);
-    printf("<< READY SENT TO %s >>\n", args->client_ID_string);
+    //printf("<< READY SENT TO %s >>\n", args->client_ID_string);
 
     zmq_pollitem_t items [] = {
         { query_handler, 0, ZMQ_POLLIN, 0 },
@@ -327,9 +348,9 @@ static void *handler_routine (void *_args) {
         if (items[0].revents & ZMQ_POLLIN){
             char *heartbeat_string = zstr_recv (query_handler);
             if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
-                printf("<< HEARTBEAT RECEIVED >>\n");
+                //printf("<< HEARTBEAT RECEIVED >>\n");
                 send_flag(args, query_handler, HEARTBEAT);
-                printf("<< HEARTBEAT ANSWERED >>\n");
+                //printf("<< HEARTBEAT ANSWERED >>\n");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
             free (heartbeat_string);
@@ -338,11 +359,15 @@ static void *handler_routine (void *_args) {
         /* timeout from client */
         if (zclock_time () >= heartbeat_at) {
             send_flag(args, query_handler, TIMEOUT);
-            printf("<< CLIENT TIMEOUT >>\n");
+            //printf("<< CLIENT TIMEOUT >>\n");
             return NULL;
         }
 
-        rc = sd_journal_next(j);
+        /* move forwards or backwards? default is backwards */
+        if( args->forwards == false )
+            rc = sd_journal_previous(j);
+        else
+            rc = sd_journal_next(j);
 
         /* send new entry if possible */
         if( rc == 1 ){
@@ -367,6 +392,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
+        //nanosleep(&tim , &tim2);
     }
 }
 
@@ -399,7 +425,7 @@ int main (void){
 
         if (items[0].revents & ZMQ_POLLIN) {
             msg = zmsg_recv (frontend);
-            printf("<< RECEIVED NEW MESSAGE >>\n");
+            //printf("<< RECEIVED NEW MESSAGE >>\n");
 
             zframe_t *client_ID = zmsg_first (msg);
             char *client_ID_string = zframe_strhex (client_ID);
@@ -410,19 +436,19 @@ int main (void){
                 args = parse_json(msg);
                 /* if args was invalid just do nothing */
                 if (args != NULL){
-                    printf("<< NEW CLIENT >>\n");
+                    //printf("<< NEW CLIENT >>\n");
                     Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
                     zhash_update (connections, args->client_ID_string, new_connection);
-                    printf("<< NEW ID: %s >>\n", args->client_ID_string);
+                    //printf("<< NEW ID: %s >>\n", args->client_ID_string);
                     assert(rc == 0);
                     zthread_new (handler_routine, (void *) args);
                 }
             }
             /* second case: heartbeat sent by client */
             else{
-                printf("<< HEARTBEAT SENT BY CLIENT: %s >>\n", client_ID_string);
+                //printf("<< HEARTBEAT SENT BY CLIENT: %s >>\n", client_ID_string);
                 zframe_t *heartbeat_frame = zmsg_last (msg);
                 zmsg_t *heartbeat = build_msg_from_frame(lookup->handler_ID, heartbeat_frame);
                 zmsg_send (&heartbeat, backend);
@@ -432,7 +458,7 @@ int main (void){
         }
 
         if (items[1].revents & ZMQ_POLLIN) {
-            printf("<< SOMETHING SENT TO CLIENT >>\n");
+            //printf("<< SOMETHING SENT TO CLIENT >>\n");
             zmsg_t *response = zmsg_recv (backend);
 
             zframe_t *handler_ID = zmsg_pop (response);
@@ -446,7 +472,7 @@ int main (void){
             /* the handler ID is inserted in the connection struct when he answers the first time */
             if( lookup->handler_ID == NULL ){
                 lookup->handler_ID = handler_ID;
-                printf("<< ADDED NEW HANDLER ID >>\n");
+                //printf("<< ADDED NEW HANDLER ID >>\n");
             }
             else zframe_destroy (&handler_ID);
 

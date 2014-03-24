@@ -39,9 +39,9 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"follow\" : true }";
+    char *query_string = "{ \"since_timestamp\" : \"2014-03-24T15:00:00.000Z\" }";
     zstr_send (client, query_string);
-    printf("<< QUERY SENT >>\n");
+    //printf("<< QUERY SENT >>\n");
 
     zmq_pollitem_t items [] = {
         { client, 0, ZMQ_POLLIN, 0 },
@@ -59,7 +59,7 @@ main(void){
         if (rc == 0){
             zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
-            printf("<< HEARTBEAT SENT >>\n");
+            //printf("<< HEARTBEAT SENT >>\n");
         }
         else if( rc == -1 ) break;
         else server_heartbeat_at = zclock_time () +  SERVER_HEARTBEAT_INTERVAL;
@@ -84,7 +84,7 @@ main(void){
         if (zclock_time () >= heartbeat_at) {
             zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
-            printf("<< HEARTBEAT SENT >>\n");
+            //printf("<< HEARTBEAT SENT >>\n");
         }
 
     }
