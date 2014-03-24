@@ -38,6 +38,7 @@ typedef struct RequestMeta {
     bool unique_entries;
     char *field;
     void **field_matches;
+    int num_field_matches;
     bool forwards; 
 }RequestMeta;
 
@@ -61,7 +62,7 @@ char *get_arg_string(json_t *json_args, char *key){
     }
 }
 
-void **get_arg_array(json_t *json_args, char *key){
+void set_matches(json_t *json_args, char *key, RequestMeta *args){
     json_t *json_array = json_object_get(json_args, key);
     if( json_array != NULL ){
         size_t size = json_array_size(json_array);
@@ -77,11 +78,13 @@ void **get_arg_array(json_t *json_args, char *key){
 
         json_decref(value);
         json_decref(json_array);
-        return array;
+
+        args->num_field_matches = size;
+        args->field_matches = array;
     }
     else{
         json_decref(json_array);
-        return NULL;
+        return;
     }
 }
 
@@ -177,7 +180,7 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->machine = get_arg_bool(json_args, "machine");
     args->unique_entries = get_arg_bool(json_args, "unique_entries");
     args->field = get_arg_string(json_args, "field");
-    args->field_matches = get_arg_array(json_args, "field_matches"); 
+    set_matches(json_args, "field_matches", args); 
     args->forwards = get_arg_bool(json_args, "forwards");
 
     /* there are some dependencies between certain attributes, these can be set here */
@@ -230,6 +233,12 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
         sd_journal_seek_tail( j );
     else if (args->forwards == true)
         sd_journal_seek_head( j );
+
+    /* field conditions */
+    int i;
+    int rc;
+    for(i=0;i<args->num_field_matches;i++)
+        sd_journal_add_match( j, args->field_matches[i], 0);
 }
 
 check_meta_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
@@ -392,7 +401,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
-        //nanosleep(&tim , &tim2);
+        nanosleep(&tim , &tim2);
     }
 }
 

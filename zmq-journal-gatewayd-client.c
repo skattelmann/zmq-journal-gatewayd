@@ -39,7 +39,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"since_timestamp\" : \"2014-03-24T15:00:00.000Z\" }";
+    char *query_string = "{ \"since_timestamp\" : \"2014-03-20T15:00:00.000Z\" , \"forwards\" : true ,  \"field_matches\" : [\"MESSAGE=Starting Session 4 of user root.\"] }";
     zstr_send (client, query_string);
     //printf("<< QUERY SENT >>\n");
 
