@@ -304,15 +304,39 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         counter++;
     }
 
-    /* then merge them together to one string */
-    char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 ));   // counter+1 for additional \n
-    entry_string[0] = '\0';         // initial setup for strcat
-    for(i=0; i<counter; i++){
-        strcat ( entry_string, entry_fields[i] );
-        strcat ( entry_string, "\n" );
+    /* the data fields are merged together according to the given output format */
+    if( args->format == NULL || strcmp( args->format, "export" ) == 0 ){  
+        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 ));   // counter+1 for additional \n
+        entry_string[0] = '\0';         // initial setup for strcat
+        for(i=0; i<counter; i++){
+            strcat ( entry_string, entry_fields[i] );
+            strcat ( entry_string, "\n" );
+        }
+        return entry_string;
+    }
+    if( strcmp( args->format, "json" ) == 0 ){  
+        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 + 10*counter + 4 ));   // counter+1 for additional \n
+        char *entry_string_token;
+        entry_string[0] = '\0';         // initial setup for strcat
+        strcat ( entry_string, "{\n" );
+        for(i=0; i<counter; i++){
+            /* every field string is splitted into two parts for the json format */
+            strcat ( entry_string, "\t\"" );
+            entry_string_token = strchr ( entry_fields[i], '=' );
+            *entry_string_token = '\0';
+            strcat ( entry_string, entry_fields[i] );
+            strcat ( entry_string, "\" : \"" );
+            strcat ( entry_string, entry_string_token+1 );
+            strcat ( entry_string, "\"" );
+            if (i != counter-1)
+                strcat ( entry_string, ",\n" );
+            else
+                strcat ( entry_string, "\n" );
+        }
+        strcat ( entry_string, "}\n" );
+        return entry_string;
     }
 
-    return entry_string;
 }
 
 void send_flag(RequestMeta *args, void *query_handler, char *flag){
@@ -401,7 +425,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
-        nanosleep(&tim , &tim2);
+        //nanosleep(&tim , &tim2);
     }
 }
 

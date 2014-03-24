@@ -24,7 +24,8 @@ int response_handler(zmsg_t *response){
         frame_data = zframe_strdup(frame);
         if( strcmp( frame_data, END ) == 0 )
             return 1;
-        printf("%s\n\n\n", frame_data);
+        if( frame_data[0] != '\\' )
+            printf("%s\n\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
 
@@ -39,9 +40,8 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"since_timestamp\" : \"2014-03-20T15:00:00.000Z\" , \"forwards\" : true ,  \"field_matches\" : [\"MESSAGE=Starting Session 4 of user root.\"] }";
+    char *query_string = "{ \"format\" : \"json\" }";
     zstr_send (client, query_string);
-    //printf("<< QUERY SENT >>\n");
 
     zmq_pollitem_t items [] = {
         { client, 0, ZMQ_POLLIN, 0 },
@@ -59,7 +59,6 @@ main(void){
         if (rc == 0){
             zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
-            //printf("<< HEARTBEAT SENT >>\n");
         }
         else if( rc == -1 ) break;
         else server_heartbeat_at = zclock_time () +  SERVER_HEARTBEAT_INTERVAL;
@@ -84,7 +83,6 @@ main(void){
         if (zclock_time () >= heartbeat_at) {
             zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
-            //printf("<< HEARTBEAT SENT >>\n");
         }
 
     }
