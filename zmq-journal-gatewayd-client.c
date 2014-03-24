@@ -1,3 +1,8 @@
+/* a test client for zmq-journal-gatewayd */
+
+/* this query string will be used for querying journal logs */
+#define QUERY_STRING "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-23T13:30:12.000Z\" , \"follow\" : true , \"field_matches\" : [\"PRIORITY=5\"] }"
+
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -12,7 +17,6 @@
 #define ERROR "\004"
 #define TIMEOUT "\005"
 
-#define QUERY_STRING "{ \"format\" : \"json\" }"
 
 /* Do sth with the received message */
 int response_handler(zmsg_t *response){
@@ -26,7 +30,11 @@ int response_handler(zmsg_t *response){
         frame_data = zframe_strdup(frame);
         if( strcmp( frame_data, END ) == 0 )
             return 1;
-        if( frame_data[0] != '\\' )
+        if( strcmp( frame_data, ERROR ) == 0 )
+            printf("<< ERROR >>\n");
+        if( strcmp( frame_data, HEARTBEAT ) == 0 )
+            printf("<< HEARTBEAT >>\n");
+        else
             printf("%s\n\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);

@@ -21,7 +21,7 @@
 #define TIMEOUT "\005"
 
 /* DEBUGGING */
-#define SLEEP 400000000L
+#define SLEEP 0//400000000L
 
 typedef struct RequestMeta {
     zframe_t *client_ID;
@@ -493,7 +493,6 @@ int main (void){
         }
 
         if (items[1].revents & ZMQ_POLLIN) {
-            //printf("<< SOMETHING SENT TO CLIENT >>\n");
             zmsg_t *response = zmsg_recv (backend);
 
             zframe_t *handler_ID = zmsg_pop (response);
@@ -507,7 +506,6 @@ int main (void){
             /* the handler ID is inserted in the connection struct when he answers the first time */
             if( lookup->handler_ID == NULL ){
                 lookup->handler_ID = handler_ID;
-                //printf("<< ADDED NEW HANDLER ID >>\n");
             }
             else zframe_destroy (&handler_ID);
 
