@@ -306,7 +306,7 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
 
     /* the data fields are merged together according to the given output format */
     if( args->format == NULL || strcmp( args->format, "export" ) == 0 ){  
-        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 ));   // counter+1 for additional \n
+        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter ));   // counter+1 for additional \n
         entry_string[0] = '\0';         // initial setup for strcat
         for(i=0; i<counter; i++){
             strcat ( entry_string, entry_fields[i] );
@@ -315,7 +315,7 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         return entry_string;
     }
     if( strcmp( args->format, "json" ) == 0 ){  
-        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter+1 + 10*counter + 4 ));   // counter+1 for additional \n
+        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter + 10*counter + 4 ));   // + counter for \n, +4 for {  }
         char *entry_string_token;
         entry_string[0] = '\0';         // initial setup for strcat
         strcat ( entry_string, "{\n" );

@@ -40,7 +40,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"format\" : \"json\" }";
+    char *query_string = "{ \"format\" : \"json\"  }";
     zstr_send (client, query_string);
 
     zmq_pollitem_t items [] = {
