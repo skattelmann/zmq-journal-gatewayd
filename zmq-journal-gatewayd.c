@@ -49,7 +49,6 @@ char *get_arg_string(json_t *json_args, char *key){
     json_t *json_string = json_object_get(json_args, key);
     if( json_string != NULL ){
         const char *string = json_string_value(json_string);
-        printf(">>> 1\n");
         char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
         strcpy(string_cpy, string);
         json_decref(json_string);
@@ -294,7 +293,6 @@ void send_flag(RequestMeta *args, void *query_handler, char *flag){
 }
 
 static void *handler_routine (void *_args) {
-
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
     void *query_handler = zsocket_new (ctx, ZMQ_DEALER);
@@ -468,4 +466,3 @@ int main (void){
     }
 
 }
-
