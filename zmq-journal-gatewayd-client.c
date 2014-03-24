@@ -12,6 +12,8 @@
 #define ERROR "\004"
 #define TIMEOUT "\005"
 
+#define QUERY_STRING "{ \"format\" : \"json\" }"
+
 /* Do sth with the received message */
 int response_handler(zmsg_t *response){
     zframe_t *frame;
@@ -40,7 +42,7 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = "{ \"format\" : \"json\"  }";
+    char *query_string = QUERY_STRING;
     zstr_send (client, query_string);
 
     zmq_pollitem_t items [] = {

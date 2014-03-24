@@ -20,7 +20,8 @@
 #define ERROR "\004"
 #define TIMEOUT "\005"
 
-
+/* DEBUGGING */
+#define SLEEP 400000000L
 
 typedef struct RequestMeta {
     zframe_t *client_ID;
@@ -39,7 +40,7 @@ typedef struct RequestMeta {
     char *field;
     void **field_matches;
     int num_field_matches;
-    bool forwards; 
+    bool reverse; 
 }RequestMeta;
 
 typedef struct Connection {
@@ -81,9 +82,12 @@ void set_matches(json_t *json_args, char *key, RequestMeta *args){
 
         args->num_field_matches = size;
         args->field_matches = array;
+        return;
     }
     else{
         json_decref(json_array);
+        args->num_field_matches = 0;
+        args->field_matches = NULL;
         return;
     }
 }
@@ -145,7 +149,6 @@ uint64_t get_arg_date(json_t *json_args, char *key){
 }
 
 RequestMeta *parse_json(zmsg_t* query_msg){
-
     zframe_t *client_ID = zmsg_pop (query_msg);
     zframe_t *query_frame = zmsg_pop (query_msg);
 
@@ -181,13 +184,13 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->unique_entries = get_arg_bool(json_args, "unique_entries");
     args->field = get_arg_string(json_args, "field");
     set_matches(json_args, "field_matches", args); 
-    args->forwards = get_arg_bool(json_args, "forwards");
+    args->reverse = get_arg_bool(json_args, "reverse");
 
     /* there are some dependencies between certain attributes, these can be set here */
     if ( args->until_cursor != NULL || args->until_timestamp != -1 )
         args->follow = false;
     if ( args->follow == true )
-        args->forwards = true;
+        args->reverse = true;
 
     json_decref(json_args);
     return args;
@@ -221,17 +224,17 @@ zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
 
 void adjust_journal(RequestMeta *args, sd_journal *j){
     /* initial position will be seeked, don't forget to 'next'  or 'previous' the journal pointer */
-    if ( args->forwards == false && args->until_cursor != NULL)
+    if ( args->reverse == false && args->until_cursor != NULL)
         sd_journal_seek_cursor( j, args->until_cursor );
-    else if ( args->forwards == true && args->since_cursor != NULL)
+    else if ( args->reverse == true && args->since_cursor != NULL)
         sd_journal_seek_cursor( j, args->since_cursor );
-    else if( args->forwards == false && args->until_timestamp != -1)
+    else if( args->reverse == false && args->until_timestamp != -1)
         sd_journal_seek_realtime_usec( j, args->until_timestamp );
-    else if ( args->forwards == true && args->since_timestamp != -1)
+    else if ( args->reverse == true && args->since_timestamp != -1)
         sd_journal_seek_realtime_usec( j, args->since_timestamp );
-    else if (args->forwards == false)
+    else if (args->reverse == false)
         sd_journal_seek_tail( j );
-    else if (args->forwards == true)
+    else if (args->reverse == true)
         sd_journal_seek_head( j );
 
     /* field conditions */
@@ -242,13 +245,13 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
 }
 
 check_meta_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
-    if ( args->forwards == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
+    if ( args->reverse == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
         return 1;
-    if ( args->forwards == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+    if ( args->reverse == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
         return 1;
-    if ( args->forwards == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
+    if ( args->reverse == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
         return 1;
-    if ( args->forwards == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec )
+    if ( args->reverse == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec )
         return 1;
     return 0;
 }
@@ -336,7 +339,6 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         strcat ( entry_string, "}\n" );
         return entry_string;
     }
-
 }
 
 void send_flag(RequestMeta *args, void *query_handler, char *flag){
@@ -362,9 +364,9 @@ static void *handler_routine (void *_args) {
     };
 
     /* just for debugging */
-    struct timespec tim, tim2;
-    tim.tv_sec  = 0;
-    tim.tv_nsec = 400000000L;
+    struct timespec tim1, tim2;
+    tim1.tv_sec  = 0;
+    tim1.tv_nsec = SLEEP;
 
     /* create and adjust the journal pointer according to the information in args */
     sd_journal *j;
@@ -392,12 +394,12 @@ static void *handler_routine (void *_args) {
         /* timeout from client */
         if (zclock_time () >= heartbeat_at) {
             send_flag(args, query_handler, TIMEOUT);
-            //printf("<< CLIENT TIMEOUT >>\n");
+            printf("<< CLIENT TIMEOUT >>\n");
             return NULL;
         }
 
         /* move forwards or backwards? default is backwards */
-        if( args->forwards == false )
+        if( args->reverse == false )
             rc = sd_journal_previous(j);
         else
             rc = sd_journal_next(j);
@@ -425,7 +427,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
-        //nanosleep(&tim , &tim2);
+        nanosleep(&tim1 , &tim2);
     }
 }
 
@@ -515,7 +517,7 @@ int main (void){
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
                 free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
-                printf("<< DELETED ITEM FROM HASH >>\n");
+                printf("<< QUERY CLOSED >>\n");
             }
 
             free(handler_response_string);
