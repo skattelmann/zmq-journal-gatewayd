@@ -1,6 +1,6 @@
 /* a test client for zmq-journal-gatewayd */
 
-/* this query string will be used for querying journal logs */
+/* default query string if now parameter is given */
 #define QUERY_STRING "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-21T13:30:12.000Z\" , \"follow\" : true }"
 
 /* do you want heartbeating? this is necessary when you use the 'follow' functionality since the server has to know that you are still alive */
@@ -49,7 +49,7 @@ int response_handler(zmsg_t *response){
     return 0;
 }
 
-main(void){
+int main ( int argc, char *argv[] ){
 
     /* initial setup */
     zctx_t *ctx = zctx_new ();
@@ -57,7 +57,8 @@ main(void){
     zsocket_connect (client, "tcp://localhost:5555");
 
     /* send query */
-    char *query_string = QUERY_STRING;
+    char *query_string = argv[1] != NULL ? argv[1] : QUERY_STRING;
+    printf( "Sending query:\n%s\n", query_string);
     zstr_send (client, query_string);
 
     zmq_pollitem_t items [] = {
