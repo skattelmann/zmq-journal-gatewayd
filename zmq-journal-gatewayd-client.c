@@ -1,7 +1,7 @@
 /* a test client for zmq-journal-gatewayd */
 
 /* this query string will be used for querying journal logs */
-#define QUERY_STRING "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-23T13:30:12.000Z\" , \"follow\" : true , \"field_matches\" : [\"PRIORITY=5\"] }"
+#define QUERY_STRING "{ \"format\" : \"blabla\" , \"since_timestamp\" : \"2014-03-23T13:30:12.000Z\" , \"follow\" : true , \"field_matches\" : [\"PRIORITY=5\"] }"
 
 #include <stdio.h>
 #include <string.h>
@@ -32,10 +32,12 @@ int response_handler(zmsg_t *response){
             return 1;
         if( strcmp( frame_data, ERROR ) == 0 )
             printf("<< ERROR >>\n");
-        if( strcmp( frame_data, HEARTBEAT ) == 0 )
+        else if( strcmp( frame_data, HEARTBEAT ) == 0 )
             printf("<< HEARTBEAT >>\n");
+        else if( strcmp( frame_data, READY ) == 0 )
+            printf("<< SERVER GOT QUERY >>\n");
         else
-            printf("%s\n\n\n", frame_data);
+            printf("New Message:\n%s\n\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
 

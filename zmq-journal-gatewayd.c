@@ -337,6 +337,8 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         strcat ( entry_string, "}\n" );
         return entry_string;
     }
+    else
+        return ERROR;
 }
 
 void send_flag(RequestMeta *args, void *query_handler, char *flag){
@@ -406,10 +408,17 @@ static void *handler_routine (void *_args) {
                 send_flag(args, query_handler, END);
                 return NULL;
             }
-            printf("%s\n\n", entry_string);
-            zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
-            free (entry_string);
-            zmsg_send (&entry_msg, query_handler);
+            else if ( strcmp(entry_string, ERROR) == 0 ){
+                send_flag(args, query_handler, ERROR);
+                return NULL;
+            }
+            /* no problems with the new entry, send it */
+            else{
+                printf("%s\n\n", entry_string);
+                zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
+                free (entry_string);
+                zmsg_send (&entry_msg, query_handler);
+            }
         }
         else if ( rc == 0 && args->follow ){
             sd_journal_wait( j, (uint64_t) WAIT_TIMEOUT );
@@ -513,7 +522,5 @@ int main (void){
             free(handler_response_string);
             zmsg_send (&response, frontend);
         }
-
     }
-
 }
