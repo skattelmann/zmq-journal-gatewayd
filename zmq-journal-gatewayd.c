@@ -376,9 +376,13 @@ static void *handler_routine (void *_args) {
     while (true) {
 
         rc = zmq_poll (items, 1, 0);
-        assert(rc != -1);
+        if( rc == -1 )
+            send_flag(args, query_handler, ERROR);
 
-        /* receive heartbeat and send it back */
+        /* 
+         * Receive heartbeat and send it back. The handler will always answer on heartbeats, 
+         * also when 'follow' is not active. but he won't answer on anything else! 
+        */
         if (items[0].revents & ZMQ_POLLIN){
             char *heartbeat_string = zstr_recv (query_handler);
             if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
@@ -388,8 +392,8 @@ static void *handler_routine (void *_args) {
             free (heartbeat_string);
         }
 
-        /* timeout from client */
-        if (zclock_time () >= heartbeat_at) {
+        /* timeout from client, only possible when 'follow' is active and client does no heartbeating */
+        if (zclock_time () >= heartbeat_at && args->follow) {
             send_flag(args, query_handler, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
             return NULL;
@@ -474,7 +478,6 @@ int main (void){
                 args = parse_json(msg);
                 /* if args was invalid just do nothing */
                 if (args != NULL){
-                    //printf("<< NEW CLIENT >>\n");
                     Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
