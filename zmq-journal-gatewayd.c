@@ -92,7 +92,7 @@ void set_matches(json_t *json_args, char *key, RequestMeta *args){
     }
 }
 
-int get_arg_bool(json_t *json_args, char *key){
+bool get_arg_bool(json_t *json_args, char *key){
     json_t *json_boolean = json_object_get(json_args, key);
     if( json_boolean != NULL ){
         int boolean;
@@ -476,7 +476,6 @@ int main (void){
             /* first case: new query */
             if( lookup == NULL ){
                 args = parse_json(msg);
-                /* if args was invalid just do nothing */
                 if (args != NULL){
                     Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
                     new_connection->client_ID = client_ID;
@@ -484,6 +483,12 @@ int main (void){
                     zhash_update (connections, args->client_ID_string, new_connection);
                     assert(rc == 0);
                     zthread_new (handler_routine, (void *) args);
+                }
+                else{
+                    /* if args was invalid answer with error */
+                    printf("<< GOT INVALID QUERY >>\n");
+                    zmsg_t *error = build_msg_from_flag(client_ID, ERROR);
+                    zmsg_send (&error, frontend);
                 }
             }
             /* second case: heartbeat sent by client */

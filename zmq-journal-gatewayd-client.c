@@ -1,10 +1,10 @@
 /* a test client for zmq-journal-gatewayd */
 
 /* default query string if now parameter is given */
-#define QUERY_STRING "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-21T13:30:12.000Z\" , \"follow\" : true }"
+#define QUERY_STRING "" // "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-21T13:30:12.000Z\" , \"follow\" : true }"
 
 /* do you want heartbeating? this is necessary when you use the 'follow' functionality since the server has to know that you are still alive */
-#define HEARTBEATING 1
+#define HEARTBEATING 0
 
 #include <stdio.h>
 #include <string.h>
@@ -31,10 +31,14 @@ int response_handler(zmsg_t *response){
         frame = zmsg_pop (response);
         more = zframe_more (frame);
         frame_data = zframe_strdup(frame);
-        if( strcmp( frame_data, END ) == 0 )
+        if( strcmp( frame_data, END ) == 0 ){
+            printf("<< GOT ALL LOGS >>\n");
             return 1;
-        if( strcmp( frame_data, ERROR ) == 0 )
+        }
+        if( strcmp( frame_data, ERROR ) == 0 ){
             printf("<< ERROR >>\n");
+            return -1;
+        }
         else if( strcmp( frame_data, HEARTBEAT ) == 0 )
             printf("<< HEARTBEAT >>\n");
         else if( strcmp( frame_data, TIMEOUT ) == 0 )
@@ -58,7 +62,8 @@ int main ( int argc, char *argv[] ){
 
     /* send query */
     char *query_string = argv[1] != NULL ? argv[1] : QUERY_STRING;
-    printf( "Sending query:\n%s\n", query_string);
+    printf( "Press any key for sending the following query:\n%s\n", query_string);
+    getchar();
     zstr_send (client, query_string);
 
     zmq_pollitem_t items [] = {
@@ -99,10 +104,8 @@ int main ( int argc, char *argv[] ){
             rc = response_handler(response);
             zmsg_destroy (&response);
             /* end of log stream? */
-            if (rc == 1){
-                printf("<< GOT ALL LOGS! >>\n");
+            if (rc != 0)
                 break;
-            }
         }
 
         /* the server also expects heartbeats while he is sending messages */
