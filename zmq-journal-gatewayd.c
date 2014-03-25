@@ -21,7 +21,7 @@
 #define TIMEOUT "\005"
 
 /* DEBUGGING */
-#define SLEEP 0//400000000L
+#define SLEEP 0 //400000000L
 
 typedef struct RequestMeta {
     zframe_t *client_ID;
@@ -355,13 +355,12 @@ static void *handler_routine (void *_args) {
     /* send READY to the client */
     zmsg_t *ready = build_msg_from_flag(args->client_ID, READY);
     zmsg_send (&ready, query_handler);
-    //printf("<< READY SENT TO %s >>\n", args->client_ID_string);
 
     zmq_pollitem_t items [] = {
         { query_handler, 0, ZMQ_POLLIN, 0 },
     };
 
-    /* just for debugging */
+    /* DEBUGGING */
     struct timespec tim1, tim2;
     tim1.tv_sec  = 0;
     tim1.tv_nsec = SLEEP;
@@ -381,9 +380,7 @@ static void *handler_routine (void *_args) {
         if (items[0].revents & ZMQ_POLLIN){
             char *heartbeat_string = zstr_recv (query_handler);
             if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
-                //printf("<< HEARTBEAT RECEIVED >>\n");
                 send_flag(args, query_handler, HEARTBEAT);
-                //printf("<< HEARTBEAT ANSWERED >>\n");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
             free (heartbeat_string);
@@ -458,7 +455,6 @@ int main (void){
 
         if (items[0].revents & ZMQ_POLLIN) {
             msg = zmsg_recv (frontend);
-            //printf("<< RECEIVED NEW MESSAGE >>\n");
 
             zframe_t *client_ID = zmsg_first (msg);
             char *client_ID_string = zframe_strhex (client_ID);
@@ -474,14 +470,12 @@ int main (void){
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
                     zhash_update (connections, args->client_ID_string, new_connection);
-                    //printf("<< NEW ID: %s >>\n", args->client_ID_string);
                     assert(rc == 0);
                     zthread_new (handler_routine, (void *) args);
                 }
             }
             /* second case: heartbeat sent by client */
             else{
-                //printf("<< HEARTBEAT SENT BY CLIENT: %s >>\n", client_ID_string);
                 zframe_t *heartbeat_frame = zmsg_last (msg);
                 zmsg_t *heartbeat = build_msg_from_frame(lookup->handler_ID, heartbeat_frame);
                 zmsg_send (&heartbeat, backend);
