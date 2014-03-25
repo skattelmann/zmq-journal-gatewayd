@@ -1,17 +1,20 @@
+CC=gcc
+CFLAGS=-c #-Wall -Wextra  
+LDFLAGS=-L/usr/local/lib -lzmq -lczmq -ljansson -lsystemd-journal -lsystemd-id128
 
 all: zmq-journal-gatewayd zmq-journal-gatewayd-client clean 
 
 zmq-journal-gatewayd: zmq-journal-gatewayd.o
-	gcc -L/usr/local/lib zmq-journal-gatewayd.o -lzmq -lczmq -ljansson -lsystemd-journal -lsystemd-id128 -o zmq-journal-gatewayd 
+	$(CC) $(LDFLAGS) zmq-journal-gatewayd.o -o zmq-journal-gatewayd 
 
 zmq-journal-gatewayd.o: zmq-journal-gatewayd.c
-	gcc -c zmq-journal-gatewayd.c -o zmq-journal-gatewayd.o
+	$(CC) $(CFLAGS) zmq-journal-gatewayd.c -o zmq-journal-gatewayd.o
 
 zmq-journal-gatewayd-client: zmq-journal-gatewayd-client.o
-	gcc -L/usr/local/lib zmq-journal-gatewayd-client.o -lzmq -lczmq -ljansson -o zmq-journal-gatewayd-client 
+	$(CC) $(LDFLAGS) zmq-journal-gatewayd-client.o -o zmq-journal-gatewayd-client 
 
 zmq-journal-gatewayd-client.o: zmq-journal-gatewayd-client.c
-	gcc -c zmq-journal-gatewayd-client.c -o zmq-journal-gatewayd-client.o
+	$(CC) $(CFLAGS) zmq-journal-gatewayd-client.c -o zmq-journal-gatewayd-client.o
 
 
 clean:

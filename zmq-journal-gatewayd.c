@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <alloca.h>
 #include <assert.h>
 #include <time.h>
 #include <systemd/sd-journal.h>
@@ -106,7 +107,7 @@ bool get_arg_bool(json_t *json_args, char *key){
     }
 }
 
-get_arg_int(json_t *json_args, char *key){
+int get_arg_int(json_t *json_args, char *key){
     json_t *json_int = json_object_get(json_args, key);
     if( json_int != NULL ){
         int integer = json_number_value(json_int);
@@ -187,7 +188,7 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->reverse = get_arg_bool(json_args, "reverse");
 
     /* there are some dependencies between certain attributes, these can be set here */
-    if ( args->until_cursor != NULL || args->until_timestamp != -1 )
+    if ( args->until_cursor != NULL || (int) args->until_timestamp != -1 )
         args->follow = false;
     if ( args->follow == true )
         args->reverse = true;
@@ -214,10 +215,9 @@ zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
 }
 
 zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
-    int r;
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
-    r = zmsg_pushstr (msg, entry_string);
+    zmsg_pushstr (msg, entry_string);
     zmsg_push (msg, ID_dup);
     return msg;
 }
@@ -228,9 +228,9 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
         sd_journal_seek_cursor( j, args->until_cursor );
     else if ( args->reverse == true && args->since_cursor != NULL)
         sd_journal_seek_cursor( j, args->since_cursor );
-    else if( args->reverse == false && args->until_timestamp != -1)
+    else if( args->reverse == false && (int) args->until_timestamp != -1)
         sd_journal_seek_realtime_usec( j, args->until_timestamp );
-    else if ( args->reverse == true && args->since_timestamp != -1)
+    else if ( args->reverse == true && (int) args->since_timestamp != -1)
         sd_journal_seek_realtime_usec( j, args->since_timestamp );
     else if (args->reverse == false)
         sd_journal_seek_tail( j );
@@ -239,16 +239,15 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
 
     /* field conditions */
     int i;
-    int rc;
     for(i=0;i<args->num_field_matches;i++)
         sd_journal_add_match( j, args->field_matches[i], 0);
 }
 
-check_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
+int check_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
     if( ( args->reverse == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
         || ( args->reverse == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
-        || ( args->reverse == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
-        || ( args->reverse == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec ) )
+        || ( args->reverse == false && (int) args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
+        || ( args->reverse == true && (int) args->until_timestamp != -1 && args->until_timestamp < realtime_usec ) )
         return 1;
     else
         return 0;
@@ -363,9 +362,9 @@ static void *handler_routine (void *_args) {
     };
 
     /* DEBUGGING */
-    struct timespec tim1, tim2;
-    tim1.tv_sec  = 0;
-    tim1.tv_nsec = SLEEP;
+    //struct timespec tim1, tim2;
+    //tim1.tv_sec  = 0;
+    //tim1.tv_nsec = SLEEP;
 
     /* create and adjust the journal pointer according to the information in args */
     sd_journal *j;
@@ -435,7 +434,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
-        nanosleep(&tim1 , &tim2);
+        //nanosleep(&tim1 , &tim2);
     }
 }
 
