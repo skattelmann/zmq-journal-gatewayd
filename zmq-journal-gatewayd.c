@@ -244,16 +244,14 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
         sd_journal_add_match( j, args->field_matches[i], 0);
 }
 
-check_meta_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
-    if ( args->reverse == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
+check_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
+    if( ( args->reverse == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
+        || ( args->reverse == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+        || ( args->reverse == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
+        || ( args->reverse == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec ) )
         return 1;
-    if ( args->reverse == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
-        return 1;
-    if ( args->reverse == false && args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
-        return 1;
-    if ( args->reverse == true && args->until_timestamp != -1 && args->until_timestamp < realtime_usec )
-        return 1;
-    return 0;
+    else
+        return 0;
 }
 
 char *get_entry_string( sd_journal *j, RequestMeta *args){
@@ -282,7 +280,7 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
     sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
     
     /* check against args if this entry should be sent */
-    if (check_meta_args(args, cursor, realtime_usec, monotonic_usec) == 1)
+    if (check_args(args, cursor, realtime_usec, monotonic_usec) == 1)
         return NULL;
 
     /* until now the prefixes for the meta information are missing */
