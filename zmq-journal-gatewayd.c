@@ -24,7 +24,7 @@
 #define STOP "\006"
 
 /* DEBUGGING */
-#define SLEEP 0 //  500000000L
+#define SLEEP  500000000L
 
 static bool active = true;
 void stop_gateway(int dummy) {
@@ -382,7 +382,7 @@ static void *handler_routine (void *_args) {
 
     /* send READY to the client */
     printf("<< query accepted >>\n");
-    send_flag( args->client_ID, query_handler, NULL, READY);
+    send_flag( args->client_ID, query_handler, NULL, READY );
 
     zmq_pollitem_t items [] = {
         { query_handler, 0, ZMQ_POLLIN, 0 },
@@ -400,7 +400,7 @@ static void *handler_routine (void *_args) {
 
     uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
     while (true) {
-
+        
         rc = zmq_poll (items, 1, 0);
         if( rc == -1 ){
             send_flag(args->client_ID, query_handler, ctx, ERROR);
@@ -413,6 +413,7 @@ static void *handler_routine (void *_args) {
             char *client_msg = zstr_recv (query_handler);
             if( strcmp(client_msg, HEARTBEAT) == 0 ){
                 /* client sent heartbeat, only necessary when 'follow' is active */
+                printf("<< got HEARTBEAT >>\n");
                 send_flag(args->client_ID, query_handler, NULL, HEARTBEAT);
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
@@ -421,6 +422,7 @@ static void *handler_routine (void *_args) {
                 send_flag(args->client_ID, query_handler, ctx, STOP);
                 printf("<< confirmed STOP >>\n");
                 sd_journal_close( j );
+                RequestMeta_destruct(args);
                 return NULL;
             }
             free (client_msg);
@@ -543,8 +545,9 @@ int main (void){
                     zframe_destroy (&client_ID);
                 }
             }
-            /* second case: heartbeat sent by client */
+            /* second case: heartbeat or stop sent by client */
             else{
+                printf("<< got HEARTBEAT or STOP >>\n");
                 zframe_t *client_msg_frame = zmsg_pop (msg);
                 zmsg_t *client_msg = build_msg_from_frame(lookup->handler_ID, client_msg_frame);
                 zmsg_send (&client_msg, backend);
@@ -575,7 +578,6 @@ int main (void){
                     || strcmp( handler_response_string, ERROR ) == 0 
                     || strcmp( handler_response_string, STOP ) == 0 
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
-                //free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
                 printf("<< query closed >>\n");
             }
