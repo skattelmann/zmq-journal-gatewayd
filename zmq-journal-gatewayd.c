@@ -24,7 +24,7 @@
 #define STOP "\006"
 
 /* DEBUGGING */
-#define SLEEP 0 // 400000000L
+#define SLEEP 0 //  500000000L
 
 static bool active = true;
 void stop_gateway(int dummy) {
@@ -384,6 +384,8 @@ static void *handler_routine (void *_args) {
         rc = zmq_poll (items, 1, 0);
         if( rc == -1 ){
             send_flag(args->client_ID, query_handler, ctx, ERROR);
+            sd_journal_close( j );
+            free(args);
             return NULL;
         }
 
@@ -398,6 +400,7 @@ static void *handler_routine (void *_args) {
                 /* client wants no more logs */
                 send_flag(args->client_ID, query_handler, ctx, STOP);
                 printf("<< confirmed STOP >>\n");
+                sd_journal_close( j );
                 return NULL;
             }
             free (client_msg);
@@ -407,6 +410,8 @@ static void *handler_routine (void *_args) {
         if (zclock_time () >= heartbeat_at && args->follow) {
             send_flag(args->client_ID, query_handler, ctx, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
+            sd_journal_close( j );
+            free(args);
             return NULL;
         }
 
@@ -421,10 +426,14 @@ static void *handler_routine (void *_args) {
             char *entry_string = get_entry_string( j, args ); 
             if (entry_string == NULL){
                 send_flag(args->client_ID, query_handler, ctx, END);
+                sd_journal_close( j );
+                free(args);
                 return NULL;
             }
             else if ( strcmp(entry_string, ERROR) == 0 ){
                 send_flag(args->client_ID, query_handler, ctx, ERROR);
+                sd_journal_close( j );
+                free(args);
                 return NULL;
             }
             /* no problems with the new entry, send it */
@@ -442,11 +451,15 @@ static void *handler_routine (void *_args) {
         /* in case moving the journal pointer around produced an error */
         else if ( rc < 0 ){
             send_flag(args->client_ID, query_handler, ctx, ERROR);
+            sd_journal_close( j );
+            free(args);
             return NULL;
         }
         /* query finished, send END and close the thread */
         else{
             send_flag(args->client_ID, query_handler, ctx, END);
+            sd_journal_close( j );
+            free(args);
             return NULL;
         }
         nanosleep(&tim1 , &tim2);
@@ -546,10 +559,12 @@ int main (void){
             }
 
             free(handler_response_string);
+            free(client_ID_string);
             zmsg_send (&response, frontend);
         }
     }
 
+    zhash_destroy (&connections);
     zctx_destroy (&ctx); 
     printf("<< ... gateway stopped >>\n");
     return 0;
