@@ -25,17 +25,27 @@ static void *client;
 
 static bool active = true;
 void stop_handler(int dummy) {
+    int rc;
+    zmq_pollitem_t items [] = {
+        { client, 0, ZMQ_POLLIN, 0 },
+    };
+
     printf("\n<< sending STOP ... >>\n");
     zstr_send (client, STOP);
     char *frame_string = NULL;
     do {
-        if (frame_string != NULL) 
-            free(frame_string);
-        frame_string = zstr_recv(client);
+        rc = zmq_poll (items, 1, 1000 * ZMQ_POLL_MSEC);
+        if ( rc == 0 ) break;
+        else{
+            if (frame_string != NULL) 
+                free(frame_string);
+            frame_string = zstr_recv(client);
+        }
     }while( strcmp( frame_string, STOP ) != 0 );
-    free(frame_string);
+    if (frame_string != NULL) 
+        free(frame_string);
 
-    printf("<< STOP confirmed >>\n");
+    printf("<< STOPPED >>\n");
 
     /* stop the client */
     active = false;
