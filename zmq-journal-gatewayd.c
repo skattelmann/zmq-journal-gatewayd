@@ -158,6 +158,24 @@ uint64_t get_arg_date(json_t *json_args, char *key){
     }
 }
 
+/* destructor for RequestMeta */
+void RequestMeta_destruct ( RequestMeta *args ){
+    free(args->client_ID_string);
+    if (args->format != NULL) free( (void *) args->format);
+    if (args->since_cursor != NULL) free(args->since_cursor);
+    if (args->until_cursor != NULL) free(args->until_cursor);
+    if (args->field != NULL ) free(args->field);
+    
+    free(args);
+}
+
+void Connection_destruct (void *_connection){
+    Connection *connection = (Connection *) _connection;
+    zframe_destroy( &(connection->handler_ID) );
+    zframe_destroy ( &(connection->client_ID) );
+    free( connection ) ;
+}
+
 RequestMeta *parse_json(zmsg_t* query_msg){
     zframe_t *client_ID = zmsg_pop (query_msg);
     zframe_t *query_frame = zmsg_pop (query_msg);
@@ -293,8 +311,10 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
     sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
     
     /* check against args if this entry should be sent */
-    if (check_args(args, cursor, realtime_usec, monotonic_usec) == 1)
+    if (check_args(args, cursor, realtime_usec, monotonic_usec) == 1){
+        free(cursor);
         return NULL;
+    }
 
     /* until now the prefixes for the meta information are missing */
     char *meta_information[] = { cursor, realtime_usec_string, monotonic_usec_string };
@@ -385,7 +405,7 @@ static void *handler_routine (void *_args) {
         if( rc == -1 ){
             send_flag(args->client_ID, query_handler, ctx, ERROR);
             sd_journal_close( j );
-            free(args);
+            RequestMeta_destruct(args);
             return NULL;
         }
 
@@ -411,7 +431,7 @@ static void *handler_routine (void *_args) {
             send_flag(args->client_ID, query_handler, ctx, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
             sd_journal_close( j );
-            free(args);
+            RequestMeta_destruct(args);
             return NULL;
         }
 
@@ -427,13 +447,13 @@ static void *handler_routine (void *_args) {
             if (entry_string == NULL){
                 send_flag(args->client_ID, query_handler, ctx, END);
                 sd_journal_close( j );
-                free(args);
+                RequestMeta_destruct(args);
                 return NULL;
             }
             else if ( strcmp(entry_string, ERROR) == 0 ){
                 send_flag(args->client_ID, query_handler, ctx, ERROR);
                 sd_journal_close( j );
-                free(args);
+                RequestMeta_destruct(args);
                 return NULL;
             }
             /* no problems with the new entry, send it */
@@ -452,14 +472,14 @@ static void *handler_routine (void *_args) {
         else if ( rc < 0 ){
             send_flag(args->client_ID, query_handler, ctx, ERROR);
             sd_journal_close( j );
-            free(args);
+            RequestMeta_destruct(args);
             return NULL;
         }
         /* query finished, send END and close the thread */
         else{
             send_flag(args->client_ID, query_handler, ctx, END);
             sd_journal_close( j );
-            free(args);
+            RequestMeta_destruct(args);
             return NULL;
         }
         nanosleep(&tim1 , &tim2);
@@ -500,6 +520,7 @@ int main (void){
             msg = zmsg_recv (frontend);
 
             zframe_t *client_ID = zmsg_first (msg);
+
             char *client_ID_string = zframe_strhex (client_ID);
             lookup = (Connection *) zhash_lookup(connections, client_ID_string);
 
@@ -512,6 +533,7 @@ int main (void){
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
                     zhash_update (connections, args->client_ID_string, new_connection);
+                    zhash_freefn ( connections, args->client_ID_string, Connection_destruct );
                     zthread_new (handler_routine, (void *) args);
                 }
                 /* if args was invalid answer with error */
@@ -523,11 +545,11 @@ int main (void){
             }
             /* second case: heartbeat sent by client */
             else{
-                zframe_t *client_msg_frame = zmsg_last (msg);
+                zframe_t *client_msg_frame = zmsg_pop (msg);
                 zmsg_t *client_msg = build_msg_from_frame(lookup->handler_ID, client_msg_frame);
                 zmsg_send (&client_msg, backend);
-                zframe_destroy (&client_ID);
             }
+            zmsg_destroy ( &msg );
             free(client_ID_string);
         }
 
@@ -553,7 +575,7 @@ int main (void){
                     || strcmp( handler_response_string, ERROR ) == 0 
                     || strcmp( handler_response_string, STOP ) == 0 
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
-                free( zhash_lookup (connections, client_ID_string) );
+                //free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
                 printf("<< query closed >>\n");
             }
