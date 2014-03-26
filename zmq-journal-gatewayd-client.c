@@ -1,11 +1,5 @@
 /* a test client for zmq-journal-gatewayd */
 
-/* default query string if now parameter is given */
-#define QUERY_STRING "" // "{ \"format\" : \"json\" , \"since_timestamp\" : \"2014-03-21T13:30:12.000Z\" , \"follow\" : true }"
-
-/* do you want heartbeating? this is necessary when you use the 'follow' functionality since the server has to know that you are still alive */
-#define HEARTBEATING 0
-
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -14,14 +8,17 @@
 #include "czmq.h"
 #include "zmq.h"
 
-#define HEARTBEAT_INTERVAL 1000 // msecs, this states after which time you send a heartbeat
-#define SERVER_HEARTBEAT_INTERVAL 5000 // msecs, this states how much time you give the server to answer a heartbeat
-#define READY "\001"
-#define END "\002"
-#define HEARTBEAT "\003"
-#define ERROR "\004"
-#define TIMEOUT "\005"
-#define STOP "\006"
+#define QUERY_STRING ""                         // default query string, every communication begins with sending a query string
+#define HEARTBEATING 0                          // set to one if 'follow' is true 
+#define CLIENT_SOCKET "tcp://localhost:5555"    // the socket the client should connect to
+#define HEARTBEAT_INTERVAL 1000                 // msecs, this states after which time you send a heartbeat
+#define SERVER_HEARTBEAT_INTERVAL 5000          // msecs, this states how much time you give the server to answer a heartbeat
+#define READY "\001"                            // answer from the gateway for a successful query (after this message the requested logs will be sent)
+#define END "\002"                              // message from the gateway, successfully sent all requested logs
+#define HEARTBEAT "\003"                        // the client is in charge of sending HEARTBEATs according to the given intervals, these will be answered immediately with a HEARTBEAT
+#define ERROR "\004"                            // message from gateway, invalid query?
+#define TIMEOUT "\005"                          // sent by gateway if a HEARTBEAT was expected but not sent by the client
+#define STOP "\006"                             // the client and gateway handler can be stopped (e.g. via ctrl-c), this will be confirmed by the gateway with a STOP 
 
 static zctx_t *ctx;
 static void *client;
@@ -44,7 +41,6 @@ void stop_handler(int dummy) {
     active = false;
 }
 
-
 /* Do sth with the received message */
 int response_handler(zmsg_t *response){
     zframe_t *frame;
@@ -56,21 +52,21 @@ int response_handler(zmsg_t *response){
         more = zframe_more (frame);
         frame_data = zframe_strdup(frame);
         if( strcmp( frame_data, END ) == 0 ){
-            printf("<< GOT ALL LOGS >>\n");
+            printf("<< got all logs >>\n");
             return 1;
         }
         if( strcmp( frame_data, ERROR ) == 0 ){
-            printf("<< ERROR >>\n");
+            printf("<< an error occoured - invalid json query string? >>\n");
             return -1;
         }
         else if( strcmp( frame_data, HEARTBEAT ) == 0 )
             printf("<< HEARTBEAT >>\n");
         else if( strcmp( frame_data, TIMEOUT ) == 0 )
-            printf("<< SERVER GOT NO HEARTBEAT >>\n");
+            printf("<< server got no heartbeat >>\n");
         else if( strcmp( frame_data, READY ) == 0 )
-            printf("<< SERVER GOT QUERY >>\n");
+            printf("<< gateway accepted query >>\n");
         else
-            printf("New Message:\n%s\n\n\n", frame_data);
+            printf("%s\n\n", frame_data);
         zframe_destroy (&frame);
     }while(more);
 
@@ -82,7 +78,7 @@ int main ( int argc, char *argv[] ){
     /* initial setup */
     ctx = zctx_new ();
     client = zsocket_new (ctx, ZMQ_DEALER);
-    zsocket_connect (client, "tcp://localhost:5555");
+    zsocket_connect (client, CLIENT_SOCKET);
 
     /* for stopping the client and the gateway handler via keystroke (ctrl-c) */
     signal(SIGINT, stop_handler);
@@ -102,7 +98,7 @@ int main ( int argc, char *argv[] ){
 
     uint64_t heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;                // the absolute time after which a heartbeat is sent
     uint64_t server_heartbeat_at = zclock_time () + SERVER_HEARTBEAT_INTERVAL;  // the absolute time after which a server timeout occours, 
-                                                                                // updated with every new message
+                                                                                // updated with every new message (doesn't need to be a heartbeat)
                                                                                 
     /* receive response while sending heartbeats (if necessary) */
     while (active) {

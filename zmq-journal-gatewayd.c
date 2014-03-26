@@ -427,13 +427,16 @@ static void *handler_routine (void *_args) {
                 zmsg_send (&entry_msg, query_handler);
             }
         }
+        /* end of journal and 'follow' active? => wait some time */
         else if ( rc == 0 && args->follow ){
             sd_journal_wait( j, (uint64_t) WAIT_TIMEOUT );
         }
+        /* in case moving the journal pointer around produced an error */
         else if ( rc < 0 ){
             send_flag(args, query_handler, ERROR);
             return NULL;
         }
+        /* query finished, send END and close the thread */
         else{
             send_flag(args, query_handler, END);
             return NULL;
@@ -479,6 +482,7 @@ int main (void){
             /* first case: new query */
             if( lookup == NULL ){
                 args = parse_json(msg);
+                /* if query is valid open query handler and pass args to it */
                 if (args != NULL){
                     Connection *new_connection = (Connection *) malloc( sizeof(Connection) );
                     new_connection->client_ID = client_ID;
@@ -486,9 +490,9 @@ int main (void){
                     zhash_update (connections, args->client_ID_string, new_connection);
                     zthread_new (handler_routine, (void *) args);
                 }
+                /* if args was invalid answer with error */
                 else{
-                    /* if args was invalid answer with error */
-                    printf("<< GOT INVALID QUERY >>\n");
+                    printf("<< got invalid query >>\n");
                     zmsg_t *error = build_msg_from_flag(client_ID, ERROR);
                     zmsg_send (&error, frontend);
                 }
@@ -526,7 +530,7 @@ int main (void){
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
                 free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
-                printf("<< QUERY CLOSED >>\n");
+                printf("<< query closed >>\n");
             }
 
             free(handler_response_string);
