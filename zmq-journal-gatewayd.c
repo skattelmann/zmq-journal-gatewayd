@@ -24,7 +24,7 @@
 #define STOP "\006"
 
 /* DEBUGGING */
-#define SLEEP  500000000L
+#define SLEEP 0 // 500000000L
 
 static bool active = true;
 void stop_gateway(int dummy) {
@@ -184,12 +184,12 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     zframe_destroy (&query_frame);
     json_error_t error;
     json_t *json_args = json_loads(query_string, 0, &error);
+    free(query_string);
 
     /* invalid query */
     if (json_args == NULL)
         return NULL;
 
-    free(query_string);
 
     char *print_query = json_dumps(json_args, JSON_INDENT(4));
     printf("\n%s\n", print_query);
@@ -228,7 +228,8 @@ RequestMeta *parse_json(zmsg_t* query_msg){
 zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
-    zmsg_push (msg, flag_frame);
+    zframe_t *flag_dup = zframe_dup (flag_frame);
+    zmsg_push (msg, flag_dup);
     zmsg_push (msg, ID_dup);
     return msg;
 }
@@ -413,7 +414,6 @@ static void *handler_routine (void *_args) {
             char *client_msg = zstr_recv (query_handler);
             if( strcmp(client_msg, HEARTBEAT) == 0 ){
                 /* client sent heartbeat, only necessary when 'follow' is active */
-                printf("<< got HEARTBEAT >>\n");
                 send_flag(args->client_ID, query_handler, NULL, HEARTBEAT);
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
@@ -423,6 +423,7 @@ static void *handler_routine (void *_args) {
                 printf("<< confirmed STOP >>\n");
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
+                free (client_msg);
                 return NULL;
             }
             free (client_msg);
@@ -547,8 +548,7 @@ int main (void){
             }
             /* second case: heartbeat or stop sent by client */
             else{
-                printf("<< got HEARTBEAT or STOP >>\n");
-                zframe_t *client_msg_frame = zmsg_pop (msg);
+                zframe_t *client_msg_frame = zmsg_last (msg);
                 zmsg_t *client_msg = build_msg_from_frame(lookup->handler_ID, client_msg_frame);
                 zmsg_send (&client_msg, backend);
             }

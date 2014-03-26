@@ -27,14 +27,13 @@ static bool active = true;
 void stop_handler(int dummy) {
     printf("\n<< sending STOP ... >>\n");
     zstr_send (client, STOP);
-    zmsg_t *response;
-    zframe_t *frame;
-    char *frame_data;
+    char *frame_string;
     do {
-        response = zmsg_recv(client);
-        frame = zmsg_pop (response);
-        frame_data = zframe_strdup(frame);
-    }while( strcmp( frame_data, STOP ) != 0 );
+        if (frame_string != NULL) 
+            free(frame_string);
+        frame_string = zstr_recv(client);
+    }while( strcmp( frame_string, STOP ) != 0 );
+    free(frame_string);
 
     printf("<< STOP confirmed >>\n");
 
@@ -52,12 +51,15 @@ int response_handler(zmsg_t *response){
         frame = zmsg_pop (response);
         more = zframe_more (frame);
         frame_data = zframe_strdup(frame);
+        zframe_destroy (&frame);
         if( strcmp( frame_data, END ) == 0 ){
             printf("<< got all logs >>\n");
+            free(frame_data);
             return 1;
         }
         if( strcmp( frame_data, ERROR ) == 0 ){
             printf("<< an error occoured - invalid json query string? >>\n");
+            free(frame_data);
             return -1;
         }
         else if( strcmp( frame_data, HEARTBEAT ) == 0 )
@@ -68,7 +70,7 @@ int response_handler(zmsg_t *response){
             printf("<< gateway accepted query >>\n\n");
         else
             printf("%s\n\n", frame_data);
-        zframe_destroy (&frame);
+        free(frame_data);
     }while(more);
 
     return 0;
