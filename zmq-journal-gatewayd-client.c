@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <signal.h>
+
 #include "czmq.h"
 #include "zmq.h"
 
@@ -19,6 +21,28 @@
 #define HEARTBEAT "\003"
 #define ERROR "\004"
 #define TIMEOUT "\005"
+#define STOP "\006"
+
+static zctx_t *ctx;
+static void *client;
+static bool active = true;
+
+void stop_handler(int dummy) {
+    zstr_send (client, STOP);
+    zmsg_t *response;
+    zframe_t *frame;
+    char *frame_data;
+    do {
+        response = zmsg_recv(client);
+        frame = zmsg_pop (response);
+        frame_data = zframe_strdup(frame);
+    }while( strcmp( frame_data, STOP ) != 0 );
+
+    printf("\n<< STOP confirmed >>\n");
+
+    /* stop the client */
+    active = false;
+}
 
 
 /* Do sth with the received message */
@@ -56,9 +80,12 @@ int response_handler(zmsg_t *response){
 int main ( int argc, char *argv[] ){
 
     /* initial setup */
-    zctx_t *ctx = zctx_new ();
-    void *client = zsocket_new (ctx, ZMQ_DEALER);
+    ctx = zctx_new ();
+    client = zsocket_new (ctx, ZMQ_DEALER);
     zsocket_connect (client, "tcp://localhost:5555");
+
+    /* for stopping the client and the gateway handler via keystroke (ctrl-c) */
+    signal(SIGINT, stop_handler);
 
     /* send query */
     char *query_string = argv[1] != NULL ? argv[1] : QUERY_STRING;
@@ -78,7 +105,7 @@ int main ( int argc, char *argv[] ){
                                                                                 // updated with every new message
                                                                                 
     /* receive response while sending heartbeats (if necessary) */
-    while (true) {
+    while (active) {
 
         rc = zmq_poll (items, 1, HEARTBEAT_INTERVAL * ZMQ_POLL_MSEC);
         if( rc == 0 && HEARTBEATING ){
@@ -113,7 +140,6 @@ int main ( int argc, char *argv[] ){
             zstr_send (client, HEARTBEAT);
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
         }
-
     }
 
     /* clear everything up */

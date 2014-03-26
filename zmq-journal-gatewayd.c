@@ -20,6 +20,7 @@
 #define HEARTBEAT "\003"
 #define ERROR "\004"
 #define TIMEOUT "\005"
+#define STOP "\006"
 
 /* DEBUGGING */
 #define SLEEP 0 //400000000L
@@ -362,9 +363,9 @@ static void *handler_routine (void *_args) {
     };
 
     /* DEBUGGING */
-    //struct timespec tim1, tim2;
-    //tim1.tv_sec  = 0;
-    //tim1.tv_nsec = SLEEP;
+    struct timespec tim1, tim2;
+    tim1.tv_sec  = 0;
+    tim1.tv_nsec = SLEEP;
 
     /* create and adjust the journal pointer according to the information in args */
     sd_journal *j;
@@ -378,20 +379,23 @@ static void *handler_routine (void *_args) {
         if( rc == -1 )
             send_flag(args, query_handler, ERROR);
 
-        /* 
-         * Receive heartbeat and send it back. The handler will always answer on heartbeats, 
-         * also when 'follow' is not active. but he won't answer on anything else! 
-        */
         if (items[0].revents & ZMQ_POLLIN){
-            char *heartbeat_string = zstr_recv (query_handler);
-            if( strcmp(heartbeat_string, HEARTBEAT) == 0 ){
+            char *client_msg = zstr_recv (query_handler);
+            if( strcmp(client_msg, HEARTBEAT) == 0 ){
+                /* client sent heartbeat, only necessary when 'follow' is active */
                 send_flag(args, query_handler, HEARTBEAT);
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
-            free (heartbeat_string);
+            else if( strcmp(client_msg, STOP) == 0 ){
+                /* client wants no more logs */
+                send_flag(args, query_handler, STOP);
+                printf("<< confirmed STOP >>\n");
+                return NULL;
+            }
+            free (client_msg);
         }
 
-        /* timeout from client, only possible when 'follow' is active and client does no heartbeating */
+        /* timeout from client, only true when 'follow' is active and client does no heartbeating */
         if (zclock_time () >= heartbeat_at && args->follow) {
             send_flag(args, query_handler, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
@@ -434,7 +438,7 @@ static void *handler_routine (void *_args) {
             send_flag(args, query_handler, END);
             return NULL;
         }
-        //nanosleep(&tim1 , &tim2);
+        nanosleep(&tim1 , &tim2);
     }
 }
 
@@ -480,7 +484,6 @@ int main (void){
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
                     zhash_update (connections, args->client_ID_string, new_connection);
-                    assert(rc == 0);
                     zthread_new (handler_routine, (void *) args);
                 }
                 else{
@@ -492,9 +495,9 @@ int main (void){
             }
             /* second case: heartbeat sent by client */
             else{
-                zframe_t *heartbeat_frame = zmsg_last (msg);
-                zmsg_t *heartbeat = build_msg_from_frame(lookup->handler_ID, heartbeat_frame);
-                zmsg_send (&heartbeat, backend);
+                zframe_t *client_msg_frame = zmsg_last (msg);
+                zmsg_t *client_msg = build_msg_from_frame(lookup->handler_ID, client_msg_frame);
+                zmsg_send (&client_msg, backend);
                 zframe_destroy (&client_ID);
             }
             free(client_ID_string);
