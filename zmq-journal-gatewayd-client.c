@@ -27,7 +27,7 @@ static bool active = true;
 void stop_handler(int dummy) {
     printf("\n<< sending STOP ... >>\n");
     zstr_send (client, STOP);
-    char *frame_string;
+    char *frame_string = NULL;
     do {
         if (frame_string != NULL) 
             free(frame_string);
@@ -89,7 +89,6 @@ int main ( int argc, char *argv[] ){
     /* send query */
     char *query_string = argv[1] != NULL ? argv[1] : QUERY_STRING;
     printf( "Press any key for sending the following query:\n%s\n", query_string);
-    getchar();
     zstr_send (client, query_string);
 
     zmq_pollitem_t items [] = {

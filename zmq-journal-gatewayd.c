@@ -64,11 +64,9 @@ char *get_arg_string(json_t *json_args, char *key){
         const char *string = json_string_value(json_string);
         char *string_cpy = (char *) malloc( sizeof(char) * (strlen(string)+1) );
         strcpy(string_cpy, string);
-        json_decref(json_string);
         return string_cpy;
     }
     else{
-        json_decref(json_string);
         return NULL;
     }
 }
@@ -88,14 +86,12 @@ void set_matches(json_t *json_args, char *key, RequestMeta *args){
         }
 
         json_decref(value);
-        json_decref(json_array);
 
         args->num_field_matches = size;
         args->field_matches = array;
         return;
     }
     else{
-        json_decref(json_array);
         args->num_field_matches = 0;
         args->field_matches = NULL;
         return;
@@ -107,11 +103,9 @@ bool get_arg_bool(json_t *json_args, char *key){
     if( json_boolean != NULL ){
         int boolean;
         json_unpack(json_boolean, "b", &boolean);
-        json_decref(json_boolean);
         return (boolean == 1) ? true : false;
     }
     else{
-        json_decref(json_boolean);
         return false;
     }
 }
@@ -120,11 +114,9 @@ int get_arg_int(json_t *json_args, char *key){
     json_t *json_int = json_object_get(json_args, key);
     if( json_int != NULL ){
         int integer = json_number_value(json_int);
-        json_decref(json_int);
         return integer;
     }
     else{
-        json_decref(json_int);
         /* this will not be used */
         return -1;
     }
@@ -137,7 +129,6 @@ uint64_t get_arg_date(json_t *json_args, char *key){
         const char *string = json_string_value(json_date);
         char string_cpy[strlen(string)+1];
         strcpy(string_cpy, string);
-        json_decref(json_date);
 
         /* decode the json date to unix epoch time, milliseconds are not considered */
         struct tm tm;
@@ -153,7 +144,6 @@ uint64_t get_arg_date(json_t *json_args, char *key){
         return (uint64_t) t;
     }
     else{
-        json_decref(json_date);
         return -1;
     }
 }
@@ -189,11 +179,6 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     /* invalid query */
     if (json_args == NULL)
         return NULL;
-
-
-    char *print_query = json_dumps(json_args, JSON_INDENT(4));
-    printf("\n%s\n", print_query);
-    free(print_query);
 
     /* fill args with arguments from json input */
     RequestMeta *args = malloc( sizeof(RequestMeta) );
