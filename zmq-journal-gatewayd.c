@@ -5,6 +5,7 @@
 #include <time.h>
 #include <systemd/sd-journal.h>
 #include <inttypes.h>
+#include <signal.h>
 
 #include "czmq.h"
 #include "zmq.h"
@@ -23,7 +24,14 @@
 #define STOP "\006"
 
 /* DEBUGGING */
-#define SLEEP 0 //400000000L
+#define SLEEP 0 // 400000000L
+
+static bool active = true;
+void stop_gateway(int dummy) {
+    printf("\n<< stopping gateway ... >>\n");
+    /* stop the gateway */
+    active = false;
+}
 
 typedef struct RequestMeta {
     zframe_t *client_ID;
@@ -198,15 +206,7 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     return args;
 }
 
-zmsg_t *build_msg_from_flag(zframe_t *ID, const char *flag){
-    zmsg_t *msg = zmsg_new();
-    zframe_t *ID_dup = zframe_dup (ID);
-    zframe_t *flag_frame = zframe_new ( flag, strlen(flag) + 1 );
-    zmsg_push (msg, flag_frame);
-    zmsg_push (msg, ID_dup);
-    return msg;
-}
-
+/* some small helpers */
 zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
@@ -214,13 +214,26 @@ zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
     zmsg_push (msg, ID_dup);
     return msg;
 }
-
 zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
     zmsg_t *msg = zmsg_new();
     zframe_t *ID_dup = zframe_dup (ID);
     zmsg_pushstr (msg, entry_string);
     zmsg_push (msg, ID_dup);
     return msg;
+}
+void send_flag( zframe_t *ID, void *socket, zctx_t *ctx, char *flag){
+    zmsg_t *msg = zmsg_new();
+    zframe_t *ID_dup = zframe_dup (ID);
+    zframe_t *flag_frame = zframe_new ( flag, strlen(flag) + 1 );
+    zmsg_push (msg, flag_frame);
+    zmsg_push (msg, ID_dup);
+
+    /* ID will not be destroyed! */
+    zmsg_send (&msg, socket);
+
+    /* context with all sockets will be destroyed if given */
+    if( ctx != NULL )
+        zctx_destroy (&ctx);
 }
 
 void adjust_journal(RequestMeta *args, sd_journal *j){
@@ -341,13 +354,6 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         return ERROR;
 }
 
-void send_flag(RequestMeta *args, void *query_handler, char *flag){
-    zmsg_t *end = build_msg_from_flag(args->client_ID, flag);
-    zmsg_send (&end, query_handler);
-    if(strcmp(flag, HEARTBEAT) != 0 )
-        zmq_close (query_handler);
-}
-
 static void *handler_routine (void *_args) {
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
@@ -355,8 +361,8 @@ static void *handler_routine (void *_args) {
     int rc = zsocket_connect (query_handler, BACKEND_SOCKET);
 
     /* send READY to the client */
-    zmsg_t *ready = build_msg_from_flag(args->client_ID, READY);
-    zmsg_send (&ready, query_handler);
+    printf("<< query accepted >>\n");
+    send_flag( args->client_ID, query_handler, NULL, READY);
 
     zmq_pollitem_t items [] = {
         { query_handler, 0, ZMQ_POLLIN, 0 },
@@ -376,19 +382,21 @@ static void *handler_routine (void *_args) {
     while (true) {
 
         rc = zmq_poll (items, 1, 0);
-        if( rc == -1 )
-            send_flag(args, query_handler, ERROR);
+        if( rc == -1 ){
+            send_flag(args->client_ID, query_handler, ctx, ERROR);
+            return NULL;
+        }
 
         if (items[0].revents & ZMQ_POLLIN){
             char *client_msg = zstr_recv (query_handler);
             if( strcmp(client_msg, HEARTBEAT) == 0 ){
                 /* client sent heartbeat, only necessary when 'follow' is active */
-                send_flag(args, query_handler, HEARTBEAT);
+                send_flag(args->client_ID, query_handler, NULL, HEARTBEAT);
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
             else if( strcmp(client_msg, STOP) == 0 ){
                 /* client wants no more logs */
-                send_flag(args, query_handler, STOP);
+                send_flag(args->client_ID, query_handler, ctx, STOP);
                 printf("<< confirmed STOP >>\n");
                 return NULL;
             }
@@ -397,7 +405,7 @@ static void *handler_routine (void *_args) {
 
         /* timeout from client, only true when 'follow' is active and client does no heartbeating */
         if (zclock_time () >= heartbeat_at && args->follow) {
-            send_flag(args, query_handler, TIMEOUT);
+            send_flag(args->client_ID, query_handler, ctx, TIMEOUT);
             printf("<< CLIENT TIMEOUT >>\n");
             return NULL;
         }
@@ -412,11 +420,11 @@ static void *handler_routine (void *_args) {
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if (entry_string == NULL){
-                send_flag(args, query_handler, END);
+                send_flag(args->client_ID, query_handler, ctx, END);
                 return NULL;
             }
             else if ( strcmp(entry_string, ERROR) == 0 ){
-                send_flag(args, query_handler, ERROR);
+                send_flag(args->client_ID, query_handler, ctx, ERROR);
                 return NULL;
             }
             /* no problems with the new entry, send it */
@@ -433,12 +441,12 @@ static void *handler_routine (void *_args) {
         }
         /* in case moving the journal pointer around produced an error */
         else if ( rc < 0 ){
-            send_flag(args, query_handler, ERROR);
+            send_flag(args->client_ID, query_handler, ctx, ERROR);
             return NULL;
         }
         /* query finished, send END and close the thread */
         else{
-            send_flag(args, query_handler, END);
+            send_flag(args->client_ID, query_handler, ctx, END);
             return NULL;
         }
         nanosleep(&tim1 , &tim2);
@@ -447,7 +455,7 @@ static void *handler_routine (void *_args) {
 
 int main (void){
 
-    void *ctx = zctx_new ();
+    zctx_t *ctx = zctx_new ();
 
     // Socket to talk to clients
     void *frontend = zsocket_new (ctx, ZMQ_ROUTER);
@@ -459,6 +467,9 @@ int main (void){
     assert(backend);
     rc = zsocket_bind (backend, BACKEND_SOCKET);
 
+    /* for stopping the gateway via keystroke (ctrl-c) */
+    signal(SIGINT, stop_gateway);
+
     // Setup the poller for frontend and backend
     zmq_pollitem_t items[] = {
         {frontend, 0, ZMQ_POLLIN, 0},
@@ -469,7 +480,7 @@ int main (void){
     Connection *lookup;
     zmsg_t *msg;
     RequestMeta *args; 
-    while (1) {
+    while ( active ) {
         zmq_poll (items, 2, -1);
 
         if (items[0].revents & ZMQ_POLLIN) {
@@ -493,8 +504,8 @@ int main (void){
                 /* if args was invalid answer with error */
                 else{
                     printf("<< got invalid query >>\n");
-                    zmsg_t *error = build_msg_from_flag(client_ID, ERROR);
-                    zmsg_send (&error, frontend);
+                    send_flag( client_ID, frontend, NULL, ERROR );
+                    zframe_destroy (&client_ID);
                 }
             }
             /* second case: heartbeat sent by client */
@@ -524,9 +535,10 @@ int main (void){
             }
             else zframe_destroy (&handler_ID);
 
-            /* case handler ENDs the query, regulary or because of error (e.g. missing heartbeat) */
+            /* case handler ENDs or STOPs the query, regulary or because of error (e.g. missing heartbeat) */
             if( strcmp( handler_response_string, END ) == 0 
                     || strcmp( handler_response_string, ERROR ) == 0 
+                    || strcmp( handler_response_string, STOP ) == 0 
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
                 free( zhash_lookup (connections, client_ID_string) );
                 zhash_delete (connections, client_ID_string);
@@ -537,4 +549,9 @@ int main (void){
             zmsg_send (&response, frontend);
         }
     }
+
+    zctx_destroy (&ctx); 
+    printf("<< ... gateway stopped >>\n");
+    return 0;
+
 }

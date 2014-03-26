@@ -9,7 +9,7 @@
 #include "zmq.h"
 
 #define QUERY_STRING ""                         // default query string, every communication begins with sending a query string
-#define HEARTBEATING 0                          // set to one if 'follow' is true 
+#define HEARTBEATING 1                          // set to one if 'follow' is true 
 #define CLIENT_SOCKET "tcp://localhost:5555"    // the socket the client should connect to
 #define HEARTBEAT_INTERVAL 1000                 // msecs, this states after which time you send a heartbeat
 #define SERVER_HEARTBEAT_INTERVAL 5000          // msecs, this states how much time you give the server to answer a heartbeat
@@ -22,8 +22,8 @@
 
 static zctx_t *ctx;
 static void *client;
-static bool active = true;
 
+static bool active = true;
 void stop_handler(int dummy) {
     zstr_send (client, STOP);
     zmsg_t *response;
@@ -64,7 +64,7 @@ int response_handler(zmsg_t *response){
         else if( strcmp( frame_data, TIMEOUT ) == 0 )
             printf("<< server got no heartbeat >>\n");
         else if( strcmp( frame_data, READY ) == 0 )
-            printf("<< gateway accepted query >>\n");
+            printf("<< gateway accepted query >>\n\n");
         else
             printf("%s\n\n", frame_data);
         zframe_destroy (&frame);
