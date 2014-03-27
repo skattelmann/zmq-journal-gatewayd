@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c #-Wall -Wextra  
+CFLAGS=-c -O2 #-Wall -Wextra  
 LDFLAGS=-L/usr/local/lib -lzmq -lczmq -ljansson -lsystemd-journal -lsystemd-id128
 
 all: zmq-journal-gatewayd zmq-journal-gatewayd-client clean 

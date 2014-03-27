@@ -360,6 +360,14 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
         return ERROR;
 }
 
+/* for measuring performance of the gateway */
+void benchmark( uint64_t initial_time, int log_counter ) {
+    uint64_t current_time = zclock_time ();
+    uint64_t time_diff_sec = (current_time - initial_time)/1000;
+    uint64_t log_rate_sec = log_counter / time_diff_sec;
+    printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
+}
+
 static void *handler_routine (void *_args) {
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
@@ -385,6 +393,8 @@ static void *handler_routine (void *_args) {
     adjust_journal(args, j);
 
     uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
+    uint64_t initial_time = zclock_time ();
+    int log_counter = 0;
     while (true) {
         
         rc = zmq_poll (items, 1, 0);
@@ -433,9 +443,11 @@ static void *handler_routine (void *_args) {
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if (entry_string == NULL){
+                printf("<< finished successfully >>\n");
                 send_flag(args->client_ID, query_handler, ctx, END);
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
+                benchmark(initial_time, log_counter);
                 return NULL;
             }
             else if ( strcmp(entry_string, ERROR) == 0 ){
@@ -450,6 +462,7 @@ static void *handler_routine (void *_args) {
                 zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
                 free (entry_string);
                 zmsg_send (&entry_msg, query_handler);
+                log_counter++;
             }
         }
         /* end of journal and 'follow' active? => wait some time */
@@ -464,10 +477,12 @@ static void *handler_routine (void *_args) {
             return NULL;
         }
         /* query finished, send END and close the thread */
-        else{
+        else if( rc == 0 ){
+            printf("<< finished successfully >>\n");
             send_flag(args->client_ID, query_handler, ctx, END);
             sd_journal_close( j );
             RequestMeta_destruct(args);
+            benchmark(initial_time, log_counter);
             return NULL;
         }
         nanosleep(&tim1 , &tim2);

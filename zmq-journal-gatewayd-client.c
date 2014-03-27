@@ -22,6 +22,7 @@
 
 static zctx_t *ctx;
 static void *client;
+int log_counter = 0;
 
 static bool active = true;
 void stop_handler(int dummy) {
@@ -67,7 +68,7 @@ int response_handler(zmsg_t *response){
             free(frame_data);
             return 1;
         }
-        if( strcmp( frame_data, ERROR ) == 0 ){
+        else if( strcmp( frame_data, ERROR ) == 0 ){
             printf("<< an error occoured - invalid json query string? >>\n");
             free(frame_data);
             return -1;
@@ -78,8 +79,10 @@ int response_handler(zmsg_t *response){
             printf("<< server got no heartbeat >>\n");
         else if( strcmp( frame_data, READY ) == 0 )
             printf("<< gateway accepted query >>\n\n");
-        else
+        else{
             printf("%s\n\n", frame_data);
+            log_counter++;
+        }
         free(frame_data);
     }while(more);
 
@@ -153,6 +156,7 @@ int main ( int argc, char *argv[] ){
     /* clear everything up */
     zsocket_destroy (ctx, client);
     zctx_destroy (&ctx);
+    printf("<< logs received: %d >>\n", log_counter);
     printf("<< EXIT >>\n");
     return 0;
 }
