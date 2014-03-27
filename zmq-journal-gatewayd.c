@@ -24,7 +24,7 @@
 #define STOP "\006"
 
 /* DEBUGGING */
-#define SLEEP 0 // 500000000L
+#define SLEEP 0//  500000000L
 
 static bool active = true;
 void stop_gateway(int dummy) {
@@ -261,9 +261,9 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
         sd_journal_add_match( j, args->field_matches[i], 0);
 }
 
-int check_args(RequestMeta *args, char *cursor, uint64_t realtime_usec, uint64_t monotonic_usec){
-    if( ( args->reverse == false && args->since_cursor != NULL && strcmp(args->since_cursor, cursor) == 0 )
-        || ( args->reverse == true && args->until_cursor != NULL && strcmp(args->until_cursor, cursor) == 0 )
+int check_args(sd_journal *j, RequestMeta *args, uint64_t realtime_usec, uint64_t monotonic_usec){
+    if( ( args->reverse == false && args->since_cursor != NULL && sd_journal_test_cursor ( j, args->since_cursor ) )
+        || ( args->reverse == true && args->until_cursor != NULL && sd_journal_test_cursor ( j, args->until_cursor ) )
         || ( args->reverse == false && (int) args->since_timestamp != -1 && args->since_timestamp > realtime_usec )
         || ( args->reverse == true && (int) args->until_timestamp != -1 && args->until_timestamp < realtime_usec ) )
         return 1;
@@ -297,7 +297,7 @@ char *get_entry_string( sd_journal *j, RequestMeta *args){
     sprintf ( monotonic_usec_string, "%" PRId64 , monotonic_usec );
     
     /* check against args if this entry should be sent */
-    if (check_args(args, cursor, realtime_usec, monotonic_usec) == 1){
+    if (check_args( j, args, realtime_usec, monotonic_usec) == 1){
         free(cursor);
         return NULL;
     }
@@ -477,7 +477,7 @@ static void *handler_routine (void *_args) {
             return NULL;
         }
         /* query finished, send END and close the thread */
-        else if( rc == 0 ){
+        else {
             printf("<< finished successfully >>\n");
             send_flag(args->client_ID, query_handler, ctx, END);
             sd_journal_close( j );
