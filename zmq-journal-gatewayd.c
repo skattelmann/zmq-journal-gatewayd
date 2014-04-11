@@ -243,8 +243,6 @@ zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
     zmsg_t *msg = zmsg_new();
     zframe_t *entry_string_frame = zframe_new (entry_string, strlen(entry_string)+1);
     zmsg_push (msg, entry_string_frame);
-    //printf(">>1\n");
-    //zmsg_pushstr (msg, entry_string);
     zframe_t *ID_dup = zframe_dup (ID);
     zmsg_push (msg, ID_dup);
     return msg;
