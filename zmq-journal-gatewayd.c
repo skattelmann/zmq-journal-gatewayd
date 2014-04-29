@@ -32,11 +32,14 @@
 #include "zmq.h"
 #include "jansson.h"
 
-#define FRONTEND_SOCKET "tcp://*:5555"
-#define BACKEND_SOCKET "ipc://backend"
-#define HANDLER_HEARTBEAT_INTERVAL 5*1000 // msecs
-#define WAIT_TIMEOUT 100000
+#define FRONTEND_SOCKET "tcp://*:5555"      // used by the clients
+#define BACKEND_SOCKET "ipc://backend"      // used by the query handlers
+#define HANDLER_HEARTBEAT_INTERVAL 5*1000   // millisecs
+#define WAIT_TIMEOUT 100000                 // microsecs, how long to wait in 'follow mode' when there is no new log; 
+                                            // must be at most HANDLER_HEARTBEAT_INTERVAL since the gateway is not able 
+                                            // to answer heartbeats in time when not.
 
+/* definitions for internal communication between gateway and client */
 #define READY "\001"
 #define END "\002"
 #define HEARTBEAT "\003"
@@ -172,7 +175,7 @@ uint64_t get_arg_date(json_t *json_args, char *key){
         strptime(ptr, "%H:%M:%S", &tm);
         tm.tm_isdst = -1;
 
-        t = mktime(&tm) * 1000000;          // this time needs to be adjusted by 1000000 to fit the journal time
+        t = mktime(&tm) * 1000000;      // this time needs to be adjusted by 1000000 to fit the journal time
 
         return (uint64_t) t;
     }
@@ -464,7 +467,7 @@ static void *handler_routine (void *_args) {
         else
             rc = sd_journal_next(j);
 
-        /* send new entry if possible */
+        /* try to send new entry if there is one */
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if (entry_string == NULL){
