@@ -19,6 +19,49 @@
  * DEALINGS IN THE SOFTWARE.
 */
 
+/*
+ * 'zmq-journal-gatewayd' is a logging gateway for systemd's journald. It 
+ * extracts logs from the journal according to given conditions and sends them
+ * to a client which requested the logs via a json-object. This object is sent
+ * as a string. As transport ZeroMQ is used. Since the gateway works straight 
+ * forward with ZeroMQ sockets you can in general choose how to communicate
+ * between gateway and client in the way you can choose this for ZeroMQ sockets.
+ *
+ * A typical query string can look like
+ *
+ *  " { \"since_timestamp\" : \"2014-04-29T13:23:25Z\" , \"reverse\" : true } "
+ *
+ * The gateway would then send all logs since the given date until now. Logs are 
+ * by default send by youngest first, unless you activate the 'reverse' attribute.
+ *
+ * The gateway can work on (in theory) arbitrary many requests in parallel. The
+ * message flow with a client follows the following specification:
+ *
+ *                        == PROTOCOL SPECIFICATION ==
+ * 
+ * 1.   The client sends a query string which represents a (valid) json object.
+ * 2.   the gateway sends a message ('READY') to acknowledge  the query as a first 
+ *      response. 
+ * 3.   After this initial response the gateway will start sending logs according
+ *      to the given restrictions/conditions. Every log is sent in exactly one 
+ *      zmq message. Possible restrictions/conditions can be seen in the 
+ *      function definition of 'parse_json'.
+ * 4.   If the query response was successful the gateway will close the request
+ *      with an additional message ('END').
+ *      If the query response was not (fully) successful the gateway will send 
+ *      an error message ('ERROR').
+ *      Another possibility regards a timeout due to heartbeating:
+ * 5.   The gateway will always accept heartbeating messages ('HEARTBEAT') from
+ *      a client but in general it is optional. Only if the follow functionality
+ *      is used the gateway will expect a heartbeating by the client. If the 
+ *      client misses a heartbeat the gateway will respond with a 'TIMEOUT'
+ *      message and close the response stream. 
+ * 6.   The client can stop the response stream of the gateway by sending a 'STOP' 
+ *      message to the gateway. The gateway will respond with a 'STOP' message 
+ *      and close the response stream.
+ */
+
+
 #include <stdio.h>
 #include <string.h>
 #include <alloca.h>
@@ -32,9 +75,10 @@
 #include "zmq.h"
 #include "jansson.h"
 
+/* general options, fit them to your needs */
 #define FRONTEND_SOCKET "tcp://*:5555"      // used by the clients
 #define BACKEND_SOCKET "ipc://backend"      // used by the query handlers
-#define HANDLER_HEARTBEAT_INTERVAL 5*1000   // millisecs
+#define HANDLER_HEARTBEAT_INTERVAL 5*1000   // millisecs, defines the time interval in which the gateway will expect a heartbeat
 #define WAIT_TIMEOUT 100000                 // microsecs, how long to wait in 'follow mode' when there is no new log; 
                                             // must be at most HANDLER_HEARTBEAT_INTERVAL since the gateway is not able 
                                             // to answer heartbeats in time when not.
@@ -47,7 +91,7 @@
 #define TIMEOUT "\005"
 #define STOP "\006"
 
-/* DEBUGGING, can also be used to throttle the gateway down */
+/* DEBUGGING, defines the time the gateway is waiting after sending one log */
 #define SLEEP 0//  500000000L
 
 /* signal handler function, can be used to interrupt the gateway via keystroke */
