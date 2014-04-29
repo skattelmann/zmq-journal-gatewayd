@@ -44,9 +44,10 @@
 #define TIMEOUT "\005"
 #define STOP "\006"
 
-/* DEBUGGING */
+/* DEBUGGING, can also be used to throttle the gateway down */
 #define SLEEP 0//  500000000L
 
+/* signal handler function, can be used to interrupt the gateway via keystroke */
 static bool active = true;
 void stop_gateway(int dummy) {
     printf("\n<< stopping gateway ... >>\n");
@@ -78,6 +79,17 @@ typedef struct Connection {
     zframe_t *client_ID;
     zframe_t *handler_ID;
 }Connection;
+
+/* destructor for RequestMeta */
+void RequestMeta_destruct (RequestMeta *args){
+    free(args->client_ID_string);
+    if (args->format != NULL) free( (void *) args->format);
+    if (args->since_cursor != NULL) free(args->since_cursor);
+    if (args->until_cursor != NULL) free(args->until_cursor);
+    if (args->field != NULL ) free(args->field);
+    
+    free(args);
+}
 
 char *get_arg_string(json_t *json_args, char *key){
     json_t *json_string = json_object_get(json_args, key);
@@ -169,17 +181,7 @@ uint64_t get_arg_date(json_t *json_args, char *key){
     }
 }
 
-/* destructor for RequestMeta */
-void RequestMeta_destruct ( RequestMeta *args ){
-    free(args->client_ID_string);
-    if (args->format != NULL) free( (void *) args->format);
-    if (args->since_cursor != NULL) free(args->since_cursor);
-    if (args->until_cursor != NULL) free(args->until_cursor);
-    if (args->field != NULL ) free(args->field);
-    
-    free(args);
-}
-
+/* represents a connection between client and handler */
 void Connection_destruct (void *_connection){
     Connection *connection = (Connection *) _connection;
     zframe_destroy( &(connection->handler_ID) );
@@ -187,6 +189,7 @@ void Connection_destruct (void *_connection){
     free( connection ) ;
 }
 
+/* fill a RequestMeta structure with the information from the query_string */
 RequestMeta *parse_json(zmsg_t* query_msg){
     zframe_t *client_ID = zmsg_pop (query_msg);
     zframe_t *query_frame = zmsg_pop (query_msg);
@@ -293,7 +296,7 @@ int check_args(sd_journal *j, RequestMeta *args, uint64_t realtime_usec, uint64_
         return 0;
 }
 
-char *get_entry_string( sd_journal *j, RequestMeta *args){
+char *get_entry_string(sd_journal *j, RequestMeta *args){
     const void *data;
     size_t length;
     size_t total_length = 0;
@@ -404,7 +407,7 @@ static void *handler_routine (void *_args) {
         { query_handler, 0, ZMQ_POLLIN, 0 },
     };
 
-    /* DEBUGGING */
+    /* DEBUGGING, can also be used to throttle the gateway down */
     struct timespec tim1, tim2;
     tim1.tv_sec  = 0;
     tim1.tv_nsec = SLEEP;
