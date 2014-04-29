@@ -327,7 +327,7 @@ char *get_entry_string(sd_journal *j, RequestMeta *args){
     /* check against args if this entry should be sent */
     if (check_args( j, args, realtime_usec, monotonic_usec) == 1){
         free(cursor);
-        return NULL;
+        return END;
     }
 
     /* until now the prefixes for the meta information are missing */
@@ -470,7 +470,7 @@ static void *handler_routine (void *_args) {
         /* try to send new entry if there is one */
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
-            if (entry_string == NULL){
+            if ( strcmp(entry_string, END) == 0 ){
                 printf("<< finished successfully >>\n");
                 send_flag(args->client_ID, query_handler, ctx, END);
                 sd_journal_close( j );
