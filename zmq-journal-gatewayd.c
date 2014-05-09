@@ -92,7 +92,7 @@
 #define STOP "\006"
 
 /* DEBUGGING, defines the time the gateway is waiting after sending one log */
-#define SLEEP 0//  500000000L
+#define SLEEP 1500000//  500000000L
 
 /* signal handler function, can be used to interrupt the gateway via keystroke */
 static bool active = true;
@@ -491,6 +491,7 @@ static void *handler_routine (void *_args) {
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
                 free (client_msg);
+                benchmark(initial_time, log_counter);
                 return NULL;
             }
             free (client_msg);
