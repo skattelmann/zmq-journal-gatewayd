@@ -530,7 +530,7 @@ static void *handler_routine (void *_args) {
             }
             /* no problems with the new entry, send it */
             else{
-                printf("%s\n\n", entry_string);
+                //printf("%s\n\n", entry_string);
                 zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
                 free (entry_string);
                 zmsg_send (&entry_msg, query_handler);
@@ -562,6 +562,8 @@ static void *handler_routine (void *_args) {
 }
 
 int main (void){
+
+    printf("<<< Gateway started ... >>>\n");
 
     zctx_t *ctx = zctx_new ();
 
