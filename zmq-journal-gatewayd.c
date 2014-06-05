@@ -95,7 +95,7 @@
 /* signal handler function, can be used to interrupt the gateway via keystroke */
 static bool active = true;
 void stop_gateway(int dummy) {
-    printf("\n<< stopping gateway ... >>\n");
+    sd_journal_print(LOG_INFO, "stopping the gateway...");
     /* stop the gateway */
     active = false;
 }
@@ -435,7 +435,8 @@ void benchmark( uint64_t initial_time, int log_counter ) {
     uint64_t current_time = zclock_time ();
     uint64_t time_diff_sec = (current_time - initial_time)/1000;
     uint64_t log_rate_sec = log_counter / time_diff_sec;
-    printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
+    /* use this only when you are certain not to produce floating point exceptions :D */
+    //sd_journal_print(LOG_DEBUG, "sent %d logs in %d seconds ( %d logs/sec )\n", log_counter, time_diff_sec, log_rate_sec);
 }
 
 static void *handler_routine (void *_args) {
@@ -445,7 +446,7 @@ static void *handler_routine (void *_args) {
     int rc = zsocket_connect (query_handler, BACKEND_SOCKET);
 
     /* send READY to the client */
-    printf("<< query accepted >>\n");
+    //printf("<< query accepted >>\n");
     send_flag( args->client_ID, query_handler, NULL, READY );
 
     zmq_pollitem_t items [] = {
@@ -480,12 +481,13 @@ static void *handler_routine (void *_args) {
             if( strcmp(client_msg, HEARTBEAT) == 0 ){
                 /* client sent heartbeat, only necessary when 'follow' is active */
                 send_flag(args->client_ID, query_handler, NULL, HEARTBEAT);
+                sd_journal_print(LOG_DEBUG, "received heartbeat, sending it back");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
             else if( strcmp(client_msg, STOP) == 0 ){
                 /* client wants no more logs */
                 send_flag(args->client_ID, query_handler, ctx, STOP);
-                printf("<< confirmed STOP >>\n");
+                sd_journal_print(LOG_DEBUG, "confirmed stop");
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
                 free (client_msg);
@@ -498,7 +500,7 @@ static void *handler_routine (void *_args) {
         /* timeout from client, only true when 'follow' is active and client does no heartbeating */
         if (zclock_time () >= heartbeat_at && args->follow) {
             send_flag(args->client_ID, query_handler, ctx, TIMEOUT);
-            printf("<< CLIENT TIMEOUT >>\n");
+            sd_journal_print(LOG_DEBUG, "client timeout");
             sd_journal_close( j );
             RequestMeta_destruct(args);
             return NULL;
@@ -514,7 +516,7 @@ static void *handler_routine (void *_args) {
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if ( strcmp(entry_string, END) == 0 ){
-                printf("<< finished successfully >>\n");
+                sd_journal_print(LOG_DEBUG, "query finished successfully");
                 send_flag(args->client_ID, query_handler, ctx, END);
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
@@ -545,24 +547,27 @@ static void *handler_routine (void *_args) {
             send_flag(args->client_ID, query_handler, ctx, ERROR);
             sd_journal_close( j );
             RequestMeta_destruct(args);
+            sd_journal_print(LOG_DEBUG, "journald API poduced erroryy");
             return NULL;
         }
         /* query finished, send END and close the thread */
         else {
-            printf("<< finished successfully >>\n");
+            sd_journal_print(LOG_DEBUG, "query finished successfully");
             send_flag(args->client_ID, query_handler, ctx, END);
             sd_journal_close( j );
             RequestMeta_destruct(args);
             benchmark(initial_time, log_counter);
             return NULL;
         }
+
+        /* debugging or throtteling */
         nanosleep(&tim1 , &tim2);
     }
 }
 
 int main (void){
 
-    printf("<<< Gateway started ... >>>\n");
+    sd_journal_print(LOG_INFO, "gateway started...");
 
     zctx_t *ctx = zctx_new ();
 
@@ -618,7 +623,7 @@ int main (void){
                 }
                 /* if args was invalid answer with error */
                 else{
-                    printf("<< got invalid query >>\n");
+                    sd_journal_print(LOG_INFO, "got invalid query");
                     send_flag( client_ID, frontend, NULL, ERROR );
                     zframe_destroy (&client_ID);
                 }
@@ -656,7 +661,7 @@ int main (void){
                     || strcmp( handler_response_string, STOP ) == 0 
                     || strcmp( handler_response_string, TIMEOUT ) == 0){
                 zhash_delete (connections, client_ID_string);
-                printf("<< query closed >>\n");
+                //printf("<< query closed >>\n");
             }
 
             free(handler_response_string);
@@ -667,7 +672,7 @@ int main (void){
 
     zhash_destroy (&connections);
     zctx_destroy (&ctx); 
-    printf("<< ... gateway stopped >>\n");
+    sd_journal_print(LOG_INFO, "...gateway stopped");
     return 0;
 
 }

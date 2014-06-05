@@ -44,7 +44,16 @@
 
 static zctx_t *ctx;
 static void *client;
+uint64_t initial_time;
 int log_counter = 0;
+
+/* for measuring performance of the gateway */
+void benchmark(uint64_t initial_time, int log_counter) {
+    uint64_t current_time = zclock_time ();
+    uint64_t time_diff_sec = (current_time - initial_time)/1000;
+    uint64_t log_rate_sec = log_counter / time_diff_sec;
+    //printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
+}
 
 static bool active = true;
 void stop_handler(int dummy) {
@@ -69,8 +78,8 @@ void stop_handler(int dummy) {
     if (frame_string != NULL) 
         free(frame_string);
 
+    benchmark(initial_time, log_counter);
     printf("<< STOPPED >>\n");
-    printf("<< logs received: %d >>\n", log_counter);
 
     /* stop the client */
     active = false;
@@ -138,6 +147,7 @@ int main ( int argc, char *argv[] ){
     uint64_t heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;                // the absolute time after which a heartbeat is sent
     uint64_t server_heartbeat_at = zclock_time () + SERVER_HEARTBEAT_INTERVAL;  // the absolute time after which a server timeout occours, 
                                                                                 // updated with every new message (doesn't need to be a heartbeat)
+    initial_time = zclock_time ();
                                                                                 
     /* receive response while sending heartbeats (if necessary) */
     while (active) {
@@ -180,7 +190,7 @@ int main ( int argc, char *argv[] ){
     /* clear everything up */
     zsocket_destroy (ctx, client);
     zctx_destroy (&ctx);
-    printf("<< logs received: %d >>\n", log_counter);
+    benchmark(initial_time, log_counter);
     printf("<< EXIT >>\n");
     return 0;
 }
