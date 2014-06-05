@@ -32,13 +32,11 @@
  *  " { \"since_timestamp\" : \"2014-04-29T13:23:25Z\" , \"reverse\" : true } "
  *
  * The gateway would then send all logs since the given date until now. Logs are 
- * by default send by youngest first, unless you activate the 'reverse' attribute.
+ * by default send by newest first, unless you activate the 'reverse' attribute.
  *
  * The gateway can work on (in theory) arbitrary many requests in parallel. The
  * message flow with a client follows the following specification:
  *
- *                        == PROTOCOL SPECIFICATION ==
- * 
  * 1.   The client sends a query string which represents a (valid) json object.
  * 2.   the gateway sends a message ('READY') to acknowledge  the query as a first 
  *      response. 
@@ -92,7 +90,7 @@
 #define STOP "\006"
 
 /* DEBUGGING, defines the time the gateway is waiting after sending one log */
-#define SLEEP 1500000//  500000000L
+#define SLEEP 0 // 1500000L //  500000000L
 
 /* signal handler function, can be used to interrupt the gateway via keystroke */
 static bool active = true;
@@ -571,12 +569,16 @@ int main (void){
     // Socket to talk to clients
     void *frontend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(frontend);
-    int rc = zsocket_bind (frontend, FRONTEND_SOCKET);
+    zsocket_set_sndhwm (frontend, 0);
+    zsocket_set_rcvhwm (frontend, 0);
+    zsocket_bind (frontend, FRONTEND_SOCKET);
 
     // Socket to talk to the query handlers
     void *backend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(backend);
-    rc = zsocket_bind (backend, BACKEND_SOCKET);
+    zsocket_set_sndhwm (backend, 0);
+    zsocket_set_rcvhwm (backend, 0);
+    zsocket_bind (backend, BACKEND_SOCKET);
 
     /* for stopping the gateway via keystroke (ctrl-c) */
     signal(SIGINT, stop_gateway);

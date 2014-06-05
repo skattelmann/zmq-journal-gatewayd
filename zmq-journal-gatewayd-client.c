@@ -63,12 +63,14 @@ void stop_handler(int dummy) {
             if (frame_string != NULL) 
                 free(frame_string);
             frame_string = zstr_recv(client);
+            log_counter++;
         }
     }while( strcmp( frame_string, STOP ) != 0 );
     if (frame_string != NULL) 
         free(frame_string);
 
     printf("<< STOPPED >>\n");
+    printf("<< logs received: %d >>\n", log_counter);
 
     /* stop the client */
     active = false;
@@ -116,6 +118,7 @@ int main ( int argc, char *argv[] ){
     /* initial setup */
     ctx = zctx_new ();
     client = zsocket_new (ctx, ZMQ_DEALER);
+    zsocket_set_rcvhwm (client, 1000);
     zsocket_connect (client, CLIENT_SOCKET);
 
     /* for stopping the client and the gateway handler via keystroke (ctrl-c) */
