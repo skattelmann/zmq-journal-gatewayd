@@ -463,7 +463,7 @@ static void *handler_routine (void *_args) {
             if( strcmp(client_msg, HEARTBEAT) == 0 ){
                 /* client sent heartbeat, only necessary when 'follow' is active */
                 send_flag(args->client_ID, query_handler, NULL, HEARTBEAT);
-                sd_journal_print(LOG_DEBUG, "received heartbeat, sending it back");
+                sd_journal_print(LOG_DEBUG, "received heartbeat, sending it back ...");
                 heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
             }
             else if( strcmp(client_msg, STOP) == 0 ){
@@ -529,7 +529,7 @@ static void *handler_routine (void *_args) {
             send_flag(args->client_ID, query_handler, ctx, ERROR);
             sd_journal_close( j );
             RequestMeta_destruct(args);
-            sd_journal_print(LOG_DEBUG, "journald API poduced erroryy");
+            sd_journal_print(LOG_DEBUG, "journald API produced error");
             return NULL;
         }
         /* query finished, send END and close the thread */
@@ -600,7 +600,7 @@ int main (void){
                     new_connection->client_ID = client_ID;
                     new_connection->handler_ID = NULL;
                     zhash_update (connections, args->client_ID_string, new_connection);
-                    zhash_freefn ( connections, args->client_ID_string, Connection_destruct );
+                    zhash_freefn (connections, args->client_ID_string, Connection_destruct );
                     zthread_new (handler_routine, (void *) args);
                 }
                 /* if args was invalid answer with error */
