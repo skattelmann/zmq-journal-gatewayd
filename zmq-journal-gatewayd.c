@@ -423,6 +423,14 @@ void benchmark( uint64_t initial_time, int log_counter ) {
     //sd_journal_print(LOG_DEBUG, "sent %d logs in %d seconds ( %d logs/sec )\n", log_counter, time_diff_sec, log_rate_sec);
 }
 
+void send_flag_wrapper (sd_journal *j, RequestMeta *args, void *socket, zctx_t *ctx, const char *message, char *flag) {
+    sd_journal_print(LOG_DEBUG, message);
+    send_flag(args->client_ID, socket, ctx, flag);
+    sd_journal_close( j );
+    RequestMeta_destruct(args);
+    return;
+}
+
 static void *handler_routine (void *_args) {
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
@@ -452,15 +460,13 @@ static void *handler_routine (void *_args) {
     int log_counter = 0;
     int loop_counter = args->at_most;
 
-    while (loop_counter > 0 || args->at_most == -1) {
+    while (loop_counter >= 0 || args->at_most == -1) {
 
         loop_counter--;
         
         rc = zmq_poll (items, 1, 0);
         if( rc == -1 ){
-            send_flag(args->client_ID, query_handler, ctx, ERROR);
-            sd_journal_close( j );
-            RequestMeta_destruct(args);
+            send_flag_wrapper (j, args, query_handler, ctx, "error in zmq poll", ERROR);
             return NULL;
         }
 
@@ -474,10 +480,7 @@ static void *handler_routine (void *_args) {
             }
             else if( strcmp(client_msg, STOP) == 0 ){
                 /* client wants no more logs */
-                send_flag(args->client_ID, query_handler, ctx, STOP);
-                sd_journal_print(LOG_DEBUG, "confirmed stop");
-                sd_journal_close( j );
-                RequestMeta_destruct(args);
+                send_flag_wrapper (j, args, query_handler, ctx, "confirmed stop", STOP);
                 free (client_msg);
                 benchmark(initial_time, log_counter);
                 return NULL;
@@ -487,10 +490,7 @@ static void *handler_routine (void *_args) {
 
         /* timeout from client, only true when 'follow' is active and client does no heartbeating */
         if (zclock_time () >= heartbeat_at && args->follow) {
-            send_flag(args->client_ID, query_handler, ctx, TIMEOUT);
-            sd_journal_print(LOG_DEBUG, "client timeout");
-            sd_journal_close( j );
-            RequestMeta_destruct(args);
+            send_flag_wrapper (j, args, query_handler, ctx, "Client Timeout", TIMEOUT);
             return NULL;
         }
 
@@ -504,10 +504,7 @@ static void *handler_routine (void *_args) {
         if( rc == 1 ){
             char *entry_string = get_entry_string( j, args ); 
             if ( strcmp(entry_string, END) == 0 ){
-                sd_journal_print(LOG_DEBUG, "query finished successfully");
-                send_flag(args->client_ID, query_handler, ctx, END);
-                sd_journal_close( j );
-                RequestMeta_destruct(args);
+                send_flag_wrapper (j, args, query_handler, ctx, "query finished successfully", END);
                 benchmark(initial_time, log_counter);
                 return NULL;
             }
@@ -532,18 +529,12 @@ static void *handler_routine (void *_args) {
         }
         /* in case moving the journal pointer around produced an error */
         else if ( rc < 0 ){
-            send_flag(args->client_ID, query_handler, ctx, ERROR);
-            sd_journal_close( j );
-            RequestMeta_destruct(args);
-            sd_journal_print(LOG_DEBUG, "journald API produced error");
+            send_flag_wrapper (j, args, query_handler, ctx, "journald API produced error", ERROR);
             return NULL;
         }
         /* query finished, send END and close the thread */
         else {
-            sd_journal_print(LOG_DEBUG, "query finished successfully");
-            send_flag(args->client_ID, query_handler, ctx, END);
-            sd_journal_close( j );
-            RequestMeta_destruct(args);
+            send_flag_wrapper (j, args, query_handler, ctx, "query finished successfully", END);
             benchmark(initial_time, log_counter);
             return NULL;
         }
@@ -553,10 +544,7 @@ static void *handler_routine (void *_args) {
     }
 
     /* the at_most option can limit the amount of sent logs */
-    sd_journal_print(LOG_DEBUG, "query finished successfully");
-    send_flag(args->client_ID, query_handler, ctx, END);
-    sd_journal_close( j );
-    RequestMeta_destruct(args);
+    send_flag_wrapper (j, args, query_handler, ctx, "query finished successfully", END);
     benchmark(initial_time, log_counter);
     return NULL;
 }
