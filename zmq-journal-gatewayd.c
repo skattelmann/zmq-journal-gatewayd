@@ -86,6 +86,7 @@ typedef struct RequestMeta {
     zframe_t *client_ID;
     char* client_ID_string;
     const char *format;
+    int at_most;
     uint64_t since_timestamp;
     uint64_t until_timestamp;
     char *since_cursor;
@@ -236,6 +237,7 @@ RequestMeta *parse_json(zmsg_t* query_msg){
     args->client_ID = client_ID;
     args->client_ID_string = zframe_strhex (client_ID);
     args->format = get_arg_string(json_args, "format");
+    args->at_most = get_arg_int(json_args, "at_most");
     args->since_timestamp = get_arg_date(json_args, "since_timestamp");
     args->until_timestamp = get_arg_date(json_args, "until_timestamp");
     args->boot_ID = get_arg_int(json_args, "boot_ID");
@@ -448,7 +450,11 @@ static void *handler_routine (void *_args) {
     uint64_t heartbeat_at = zclock_time () + HANDLER_HEARTBEAT_INTERVAL;
     uint64_t initial_time = zclock_time ();
     int log_counter = 0;
-    while (true) {
+    int loop_counter = args->at_most;
+
+    while (loop_counter > 0 || args->at_most == -1) {
+
+        loop_counter--;
         
         rc = zmq_poll (items, 1, 0);
         if( rc == -1 ){
@@ -545,6 +551,14 @@ static void *handler_routine (void *_args) {
         /* debugging or throtteling */
         nanosleep(&tim1 , &tim2);
     }
+
+    /* the at_most option can limit the amount of sent logs */
+    sd_journal_print(LOG_DEBUG, "query finished successfully");
+    send_flag(args->client_ID, query_handler, ctx, END);
+    sd_journal_close( j );
+    RequestMeta_destruct(args);
+    benchmark(initial_time, log_counter);
+    return NULL;
 }
 
 int main (void){
