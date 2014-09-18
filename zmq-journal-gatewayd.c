@@ -435,6 +435,7 @@ static void *handler_routine (void *_args) {
     RequestMeta *args = (RequestMeta *) _args;
     zctx_t *ctx = zctx_new ();
     void *query_handler = zsocket_new (ctx, ZMQ_DEALER);
+    zsocket_set_sndhwm (query_handler, HANDLER_HWM);
     int rc = zsocket_connect (query_handler, BACKEND_SOCKET);
 
     /* send READY to the client */
@@ -460,7 +461,7 @@ static void *handler_routine (void *_args) {
     int log_counter = 0;
     int loop_counter = args->at_most;
 
-    while (loop_counter >= 0 || args->at_most == -1) {
+    while (loop_counter > 0 || args->at_most == -1) {
 
         loop_counter--;
         
@@ -558,15 +559,15 @@ int main (void){
     // Socket to talk to clients
     void *frontend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(frontend);
-    zsocket_set_sndhwm (frontend, 0);
-    zsocket_set_rcvhwm (frontend, 0);
+    zsocket_set_sndhwm (frontend, GATEWAY_HWM);
+    zsocket_set_rcvhwm (frontend, GATEWAY_HWM);
     zsocket_bind (frontend, FRONTEND_SOCKET);
 
     // Socket to talk to the query handlers
     void *backend = zsocket_new (ctx, ZMQ_ROUTER);
     assert(backend);
-    zsocket_set_sndhwm (backend, 0);
-    zsocket_set_rcvhwm (backend, 0);
+    zsocket_set_sndhwm (backend, GATEWAY_HWM);
+    zsocket_set_rcvhwm (backend, GATEWAY_HWM);
     zsocket_bind (backend, BACKEND_SOCKET);
 
     /* for stopping the gateway via keystroke (ctrl-c) */

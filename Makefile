@@ -16,7 +16,6 @@ zmq-journal-gatewayd-client: zmq-journal-gatewayd-client.o
 zmq-journal-gatewayd-client.o: zmq-journal-gatewayd-client.c
 	$(CC) $(CFLAGS) zmq-journal-gatewayd-client.c -o zmq-journal-gatewayd-client.o
 
-
 clean:
 	rm *.o
 
