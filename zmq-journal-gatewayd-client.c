@@ -27,20 +27,9 @@
 #include <assert.h>
 #include <signal.h>
 
+#include "zmq-journal-gatewayd.h"
 #include "czmq.h"
 #include "zmq.h"
-
-#define QUERY_STRING ""                         // default query string, every communication begins with sending a query string
-#define HEARTBEATING 0                          // set to '1' if 'follow' is true 
-#define CLIENT_SOCKET "tcp://localhost:5555"    // the socket the client should connect to
-#define HEARTBEAT_INTERVAL 1000                 // msecs, this states after which time you send a heartbeat
-#define SERVER_HEARTBEAT_INTERVAL 5000          // msecs, this states how much time you give the server to answer a heartbeat
-#define READY "\001"                            // answer from the gateway for a successful query (after this message the requested logs will be sent)
-#define END "\002"                              // message from the gateway, successfully sent all requested logs
-#define HEARTBEAT "\003"                        // the client is in charge of sending HEARTBEATs according to the given intervals, these will be answered immediately with a HEARTBEAT
-#define ERROR "\004"                            // message from gateway, invalid query?
-#define TIMEOUT "\005"                          // sent by gateway if a HEARTBEAT was expected but not sent by the client
-#define STOP "\006"                             // the client and gateway handler can be stopped (e.g. via ctrl-c), this will be confirmed by the gateway with a STOP 
 
 static zctx_t *ctx;
 static void *client;
@@ -52,7 +41,7 @@ void benchmark(uint64_t initial_time, int log_counter) {
     uint64_t current_time = zclock_time ();
     uint64_t time_diff_sec = (current_time - initial_time)/1000;
     uint64_t log_rate_sec = log_counter / time_diff_sec;
-    //printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
+    printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
 }
 
 static bool active = true;
