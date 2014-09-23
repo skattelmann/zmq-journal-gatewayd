@@ -78,8 +78,7 @@
 static bool active = true;
 void stop_gateway(int dummy) {
     sd_journal_print(LOG_INFO, "stopping the gateway...");
-    /* stop the gateway */
-    active = false;
+    active = false; // stop the gateway
 }
 
 typedef struct RequestMeta {
@@ -98,8 +97,10 @@ typedef struct RequestMeta {
     bool machine;
     bool unique_entries;
     char *field;
-    void **field_matches;
-    int num_field_matches;
+
+    void **clauses;     // array of clauses
+    size_t n_clauses;
+
     bool reverse; 
 }RequestMeta;
 
@@ -108,6 +109,11 @@ typedef struct Connection {
     zframe_t *handler_ID;
 }Connection;
 
+typedef struct Clause {
+    void **primitives;  // array of strings
+    size_t n_primitives;        // number of boolean primitives
+}Clause;
+
 /* destructor for RequestMeta */
 void RequestMeta_destruct (RequestMeta *args){
     free(args->client_ID_string);
@@ -115,7 +121,20 @@ void RequestMeta_destruct (RequestMeta *args){
     if (args->since_cursor != NULL) free(args->since_cursor);
     if (args->until_cursor != NULL) free(args->until_cursor);
     if (args->field != NULL ) free(args->field);
-    
+    void **clauses = args->clauses;
+    if (clauses != NULL ){
+        int i,j;
+        for(i=0;i<args->n_clauses;i++){
+            Clause *clause = clauses[i];
+            for(j=0;j<clause->n_primitives;j++){
+                free((clause->primitives)[j]);
+            }
+            free(clause->primitives);
+            free(clause);
+        }
+        free(clauses);
+    }
+
     free(args);
 }
 
@@ -135,26 +154,51 @@ char *get_arg_string(json_t *json_args, char *key){
 void set_matches(json_t *json_args, char *key, RequestMeta *args){
     json_t *json_array = json_object_get(json_args, key);
     if( json_array != NULL ){
-        size_t size = json_array_size(json_array);
+
+        /*  
+            The gateway accepets matches in form of boolean formulas.
+            These formulas are represented in KNF such that every clause
+            is represented as one array. The whole boolean formula is
+            represented as an array of clauses/arrays. For example
+
+            (PRIORITY=0 OR PRIORITY=1) AND (CODE_FILE=my_file)
+
+            is represented through:
+            
+            [["PRIORITY=0", "PRIORITY=1"], ["CODE_FILE=my_file"]]
+        */
+
+        size_t n_clauses = json_array_size(json_array);                     // number of clauses 
+        void **clauses = (void **) malloc( sizeof(Clause *) * n_clauses );  // array of clauses; the whole boolean formula
+
         size_t index;
         json_t *value;
-
-        void **array = (void **) malloc( sizeof(char *) * size );
+        Clause *clause;
         json_array_foreach(json_array, index, value) {
-            const char *json_array_value = json_string_value(value);
-            array[index] = (char *) malloc( sizeof(char) * (strlen(json_array_value)+1) );
-            strcpy(array[index], json_array_value);
+            json_t *json_clause = json_array_get(json_array, index);
+            clause = (Clause *) malloc( sizeof(Clause) );
+            size_t n_primitives = json_array_size(json_clause);
+            clause->primitives = (void **) malloc( sizeof(char *) * n_primitives );
+            clause->n_primitives = n_primitives;
+
+            size_t index1;
+            json_t *value1;
+            json_array_foreach(json_clause, index1, value1) {
+                const char *json_clause_value = json_string_value(value1);
+                (clause->primitives)[index1] = (char *) malloc( sizeof(char) * (strlen(json_clause_value)+1) );
+                strcpy((clause->primitives)[index1], json_clause_value);
+            }
+            clauses[index] = clause;
         }
 
-        json_decref(value);
+        args->n_clauses = n_clauses;
+        args->clauses = clauses;
 
-        args->num_field_matches = size;
-        args->field_matches = array;
         return;
     }
     else{
-        args->num_field_matches = 0;
-        args->field_matches = NULL;
+        args->n_clauses = 0;
+        args->clauses = NULL;
         return;
     }
 }
@@ -307,10 +351,16 @@ void adjust_journal(RequestMeta *args, sd_journal *j){
     else if (args->reverse == true)
         sd_journal_seek_head( j );
 
-    /* field conditions */
-    int i;
-    for(i=0;i<args->num_field_matches;i++)
-        sd_journal_add_match( j, args->field_matches[i], 0);
+    /* field matches conditions */
+    int i,k;
+    Clause *clause;
+    for(i=0;i<args->n_clauses;i++){
+        clause = (args->clauses)[i];
+        for(k=0;k<clause->n_primitives;k++){
+            sd_journal_add_match( j, clause->primitives[k], 0);
+        }
+        sd_journal_add_conjunction( j );
+    }
 }
 
 int check_args(sd_journal *j, RequestMeta *args, uint64_t realtime_usec, uint64_t monotonic_usec){
