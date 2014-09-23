@@ -177,10 +177,8 @@ int get_arg_int(json_t *json_args, char *key){
         int integer = json_number_value(json_int);
         return integer;
     }
-    else{
-        /* this will not be used */
+    else
         return -1;
-    }
 }
 
 uint64_t get_arg_date(json_t *json_args, char *key){

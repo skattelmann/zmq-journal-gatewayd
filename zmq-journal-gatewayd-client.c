@@ -102,7 +102,7 @@ int response_handler(zmsg_t *response){
         else if( strcmp( frame_data, READY ) == 0 )
             printf("<< gateway accepted query >>\n\n");
         else{
-            //printf("%s\n\n", frame_data);
+            printf("%s\n\n", frame_data);
             log_counter++;
         }
         free(frame_data);
