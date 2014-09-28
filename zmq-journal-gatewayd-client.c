@@ -39,7 +39,7 @@ void benchmark(uint64_t initial_time, int log_counter) {
     uint64_t current_time = zclock_time ();
     uint64_t time_diff_sec = (current_time - initial_time)/1000;
     uint64_t log_rate_sec = log_counter / time_diff_sec;
-    printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
+    //printf("<< sent %d logs in %d seconds ( %d logs/sec ) >>\n", log_counter, time_diff_sec, log_rate_sec);
 }
 
 static bool active = true;
@@ -49,7 +49,7 @@ void stop_handler(int dummy) {
         { client, 0, ZMQ_POLLIN, 0 },
     };
 
-    printf("\n<< sending STOP ... >>\n");
+    //printf("\n<< sending STOP ... >>\n");
     zstr_send (client, STOP);
     char *frame_string = NULL;
     do {
@@ -66,7 +66,7 @@ void stop_handler(int dummy) {
         free(frame_string);
 
     benchmark(initial_time, log_counter);
-    printf("<< STOPPED >>\n");
+    //printf("<< STOPPED >>\n");
 
     /* stop the client */
     active = false;
@@ -84,21 +84,21 @@ int response_handler(zmsg_t *response){
         frame_data = zframe_strdup(frame);
         zframe_destroy (&frame);
         if( strcmp( frame_data, END ) == 0 ){
-            printf("<< got all logs >>\n");
+            //printf("<< got all logs >>\n");
             free(frame_data);
             return 1;
         }
         else if( strcmp( frame_data, ERROR ) == 0 ){
-            printf("<< an error occoured - invalid json query string? >>\n");
+            //printf("<< an error occoured - invalid json query string? >>\n");
             free(frame_data);
             return -1;
         }
-        else if( strcmp( frame_data, HEARTBEAT ) == 0 )
-            printf("<< HEARTBEAT >>\n");
-        else if( strcmp( frame_data, TIMEOUT ) == 0 )
-            printf("<< server got no heartbeat >>\n");
-        else if( strcmp( frame_data, READY ) == 0 )
-            printf("<< gateway accepted query >>\n\n");
+        else if( strcmp( frame_data, HEARTBEAT ) == 0 ) NULL;
+        //    printf("<< HEARTBEAT >>\n");
+        else if( strcmp( frame_data, TIMEOUT ) == 0 ) NULL;
+        //    printf("<< server got no heartbeat >>\n");
+        else if( strcmp( frame_data, READY ) == 0 ) NULL;
+        //    printf("<< gateway accepted query >>\n\n");
         else{
             printf("%s\n", frame_data);
             log_counter++;
@@ -153,7 +153,7 @@ int main ( int argc, char *argv[] ){
             break;
 
         if(zclock_time () >= server_heartbeat_at){ 
-            printf("<< SERVER TIMEOUT >>\n");
+            //printf("<< SERVER TIMEOUT >>\n");
             break;
         }
 
@@ -178,6 +178,6 @@ int main ( int argc, char *argv[] ){
     zsocket_destroy (ctx, client);
     zctx_destroy (&ctx);
     benchmark(initial_time, log_counter);
-    printf("<< EXIT >>\n");
+    //printf("<< EXIT >>\n");
     return 0;
 }
