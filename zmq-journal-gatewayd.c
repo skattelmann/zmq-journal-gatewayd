@@ -59,7 +59,6 @@
  *      and close the response stream.
  */
 
-
 #include <stdio.h>
 #include <string.h>
 #include <alloca.h>
@@ -70,8 +69,6 @@
 #include <signal.h>
 
 #include "zmq-journal-gatewayd.h"
-#include "czmq.h"
-#include "zmq.h"
 #include "jansson.h"
 
 /* signal handler function, can be used to interrupt the gateway via keystroke */
@@ -81,62 +78,10 @@ void stop_gateway(int dummy) {
     active = false; // stop the gateway
 }
 
-typedef struct RequestMeta {
-    zframe_t *client_ID;
-    char* client_ID_string;
-    const char *format;
-    int at_most;
-    uint64_t since_timestamp;
-    uint64_t until_timestamp;
-    char *since_cursor;
-    char *until_cursor;
-    bool follow;
-    bool discrete;
-    bool boot;
-    int boot_ID;
-    bool machine;
-    bool unique_entries;
-    char *field;
-
-    void **clauses;     // array of clauses
-    size_t n_clauses;
-
-    bool reverse; 
-}RequestMeta;
-
 typedef struct Connection {
     zframe_t *client_ID;
     zframe_t *handler_ID;
 }Connection;
-
-typedef struct Clause {
-    void **primitives;  // array of strings
-    size_t n_primitives;        // number of boolean primitives
-}Clause;
-
-/* destructor for RequestMeta */
-void RequestMeta_destruct (RequestMeta *args){
-    free(args->client_ID_string);
-    if (args->format != NULL) free( (void *) args->format);
-    if (args->since_cursor != NULL) free(args->since_cursor);
-    if (args->until_cursor != NULL) free(args->until_cursor);
-    if (args->field != NULL ) free(args->field);
-    void **clauses = args->clauses;
-    if (clauses != NULL ){
-        int i,j;
-        for(i=0;i<args->n_clauses;i++){
-            Clause *clause = clauses[i];
-            for(j=0;j<clause->n_primitives;j++){
-                free((clause->primitives)[j]);
-            }
-            free(clause->primitives);
-            free(clause);
-        }
-        free(clauses);
-    }
-
-    free(args);
-}
 
 char *get_arg_string(json_t *json_args, char *key){
     json_t *json_string = json_object_get(json_args, key);
