@@ -100,7 +100,7 @@ int response_handler(zmsg_t *response){
         else if( strcmp( frame_data, READY ) == 0 ) NULL;
         //    printf("<< gateway accepted query >>\n\n");
         else{
-            printf("%s\n", frame_data);
+            printf("\n%s", frame_data);
             log_counter++;
         }
         free(frame_data);
@@ -173,6 +173,8 @@ int main ( int argc, char *argv[] ){
             heartbeat_at = zclock_time () + HEARTBEAT_INTERVAL;
         }
     }
+
+    printf("\n");
 
     /* clear everything up */
     zsocket_destroy (ctx, client);

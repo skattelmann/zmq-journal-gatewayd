@@ -67,6 +67,7 @@
 #include <systemd/sd-journal.h>
 #include <inttypes.h>
 #include <signal.h>
+#include <stdint.h>
 
 #include "zmq-journal-gatewayd.h"
 #include "jansson.h"
@@ -328,6 +329,7 @@ char *get_entry_string(sd_journal *j, RequestMeta *args){
     SD_JOURNAL_FOREACH_DATA(j, data, length)
         counter++;
     char *entry_fields[counter+1+3];        // +3 for meta information, prefixed by '__'
+    int entry_fields_len[counter+1+3];        // +3 for meta information, prefixed by '__'
 
     /* then insert the meta information, memory allocation first */
     char *cursor;
@@ -358,6 +360,7 @@ char *get_entry_string(sd_journal *j, RequestMeta *args){
         strcat ( entry_fields[i], meta_prefixes[i] );
         strcat ( entry_fields[i], meta_information[i] );
         total_length += strlen(entry_fields[i])+1;  // +1 for \0
+        entry_fields_len[i] = strlen(entry_fields[i])+1;
     }
     free(cursor);
 
@@ -368,15 +371,37 @@ char *get_entry_string(sd_journal *j, RequestMeta *args){
         strncpy(entry_fields[counter], data, length);
         ((char *)(entry_fields[counter]))[length] = '\0';                       // set the \0 
         total_length += length+1;                                               // +1 for \0
+
+        entry_fields_len[counter] = total_length;
+
+        if (strchr(entry_fields[counter], '\n') != NULL){
+            char *field_name = strtok(entry_fields[counter], "=");
+            int field_name_len = strlen(field_name);
+            int new_length = length+1+8;
+            int64_t new_length64 = new_length64;
+
+            entry_fields[counter] = (char *) alloca( sizeof(char) * new_length ); 
+            strcat ( entry_fields[counter], field_name );
+            strcat ( entry_fields[counter] + field_name_len, "\n" );
+            memcpy ( entry_fields[counter] + field_name_len + 1, (char *) &new_length64, sizeof(int64_t) );
+            strcat ( entry_fields[counter] + field_name_len + 1 + 8,  field_name + field_name_len + 1);
+
+            entry_fields_len[counter] = new_length;
+            total_length += 8;                                               // +1 for \0
+
+            printf("%s\n", entry_fields[counter]);
+        }
+
         counter++;
     }
 
     /* the data fields are merged together according to the given output format */
     if( args->format == NULL || strcmp( args->format, "export" ) == 0 ){  
-        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter ));   // counter+1 for additional \n
+        int final_length = total_length + counter;
+        char *entry_string = (char *) malloc( sizeof(char) * ( final_length ));   // counter+1 for additional \n
         entry_string[0] = '\0';         // initial setup for strcat
         for(i=0; i<counter; i++){
-            strcat ( entry_string, entry_fields[i] );
+            strncat ( entry_string, entry_fields[i], entry_fields_len[i] );
             strcat ( entry_string, "\n" );
         }
         return entry_string;
@@ -507,6 +532,10 @@ static void *handler_routine (void *_args) {
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
                 return NULL;
+            }
+            else if ( strcmp(entry_string, IGNORE) == 0 ){
+                free (entry_string);
+                sd_journal_print(LOG_DEBUG, "field or entry size too large, log is ignored");
             }
             /* no problems with the new entry, send it */
             else{

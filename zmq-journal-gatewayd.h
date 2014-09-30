@@ -21,14 +21,18 @@
 #define ERROR "\004"
 #define TIMEOUT "\005"
 #define STOP "\006"
+#define IGNORE "\007"
 
-#define QUERY_STRING "{}"                         // default query string, every communication begins with sending a query string
+#define QUERY_STRING "{}"                       // default query string, every communication begins with sending a query string
 #define HEARTBEATING 0                          // set to '1' if 'follow' is true 
-#define CLIENT_SOCKET "tcp://localhost:5555"    // the socket the client should connect to
+#define CLIENT_SOCKET "tcp://192.168.122.1:5555"    // the socket the client should connect to
 #define HEARTBEAT_INTERVAL 1000                 // msecs, this states after which time you send a heartbeat
 #define SERVER_HEARTBEAT_INTERVAL 5000          // msecs, this states how much time you give the server to answer a heartbeat
-#define CLIENT_HWM 0                         // high water mark for the clients
+#define CLIENT_HWM 0                            // high water mark for the clients
 
+/** from systemd's journal-native.h **/
+#define ENTRY_SIZE_MAX (1024*1024*770u)
+#define DATA_SIZE_MAX (1024*1024*768u)
 
 /** DEBUGGING, defines the time the gateway is waiting after sending one log **/
 #define SLEEP 0 // 1500000L //  500000000L
