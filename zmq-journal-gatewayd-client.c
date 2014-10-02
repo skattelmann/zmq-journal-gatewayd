@@ -75,35 +75,37 @@ void stop_handler(int dummy) {
 /* Do sth with the received message */
 int response_handler(zmsg_t *response){
     zframe_t *frame;
-    char *frame_data;
+    void *frame_data;
+    size_t frame_size;
     int more;
 
     do{
         frame = zmsg_pop (response);
+        frame_size = zframe_size(frame);
         more = zframe_more (frame);
-        frame_data = zframe_strdup(frame);
-        zframe_destroy (&frame);
-        if( strcmp( frame_data, END ) == 0 ){
+        frame_data = zframe_data(frame);
+        if( memcmp( frame_data, END, strlen(END) ) == 0 ){
             //printf("<< got all logs >>\n");
-            free(frame_data);
+            zframe_destroy (&frame);
             return 1;
         }
-        else if( strcmp( frame_data, ERROR ) == 0 ){
+        else if( memcmp( frame_data, ERROR, strlen(ERROR) ) == 0 ){
             //printf("<< an error occoured - invalid json query string? >>\n");
-            free(frame_data);
+            zframe_destroy (&frame);
             return -1;
         }
-        else if( strcmp( frame_data, HEARTBEAT ) == 0 ) NULL;
+        else if( memcmp( frame_data, HEARTBEAT, strlen(HEARTBEAT) ) == 0 ) NULL;
         //    printf("<< HEARTBEAT >>\n");
-        else if( strcmp( frame_data, TIMEOUT ) == 0 ) NULL;
+        else if( memcmp( frame_data, TIMEOUT, strlen(TIMEOUT) ) == 0 ) NULL;
         //    printf("<< server got no heartbeat >>\n");
-        else if( strcmp( frame_data, READY ) == 0 ) NULL;
+        else if( memcmp( frame_data, READY, strlen(READY) ) == 0 ) NULL;
         //    printf("<< gateway accepted query >>\n\n");
         else{
-            printf("\n%s", frame_data);
+            write(1, "\n", 1);
+            write(1, frame_data, frame_size);
             log_counter++;
         }
-        free(frame_data);
+        zframe_destroy (&frame);
     }while(more);
 
     return 0;

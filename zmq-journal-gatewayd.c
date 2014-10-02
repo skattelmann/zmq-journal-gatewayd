@@ -259,9 +259,9 @@ zmsg_t *build_msg_from_frame(zframe_t *ID, zframe_t *flag_frame){
     zmsg_push (msg, ID_dup);
     return msg;
 }
-zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string){
+zmsg_t *build_entry_msg(zframe_t *ID, char *entry_string, int entry_string_size){
     zmsg_t *msg = zmsg_new();
-    zframe_t *entry_string_frame = zframe_new (entry_string, strlen(entry_string)+1);
+    zframe_t *entry_string_frame = zframe_new (entry_string, entry_string_size);
     zmsg_push (msg, entry_string_frame);
     zframe_t *ID_dup = zframe_dup (ID);
     zmsg_push (msg, ID_dup);
@@ -319,7 +319,8 @@ int check_args(sd_journal *j, RequestMeta *args, uint64_t realtime_usec, uint64_
         return 0;
 }
 
-char *get_entry_string(sd_journal *j, RequestMeta *args){
+char *get_entry_string(sd_journal *j, RequestMeta *args, char** entry_string, size_t* entry_string_size){
+
     const void *data;
     size_t length;
     size_t total_length = 0;
@@ -355,81 +356,62 @@ char *get_entry_string(sd_journal *j, RequestMeta *args){
     char *meta_information[] = { cursor, realtime_usec_string, monotonic_usec_string };
     const char *meta_prefixes[] = {"__CURSOR=", "__REALTIME_TIMESTAMP=" , "__MONOTONIC_TIMESTAMP=" };
     for(i=0; i<3; i++){
-        entry_fields[i] = (char *) alloca( sizeof(char) * ( strlen(meta_prefixes[i]) + strlen(meta_information[i]) + 1));     
-        ((char *)(entry_fields[i]))[0] = '\0';      // initial setup for strcat 
-        strcat ( entry_fields[i], meta_prefixes[i] );
-        strcat ( entry_fields[i], meta_information[i] );
-        total_length += strlen(entry_fields[i])+1;  // +1 for \0
-        entry_fields_len[i] = strlen(entry_fields[i])+1;
+        int prefix_len = strlen(meta_prefixes[i]);
+        int information_len = strlen(meta_information[i]);
+        entry_fields[i] = (char *) alloca( sizeof(char) * ( prefix_len + information_len ));     
+        memcpy ( entry_fields[i], (void *) meta_prefixes[i], prefix_len );
+        memcpy ( entry_fields[i] + prefix_len, (void *) meta_information[i], information_len );
+        entry_fields_len[i] = prefix_len + information_len;
+        total_length += entry_fields_len[i];
     }
     free(cursor);
 
     /* then get all fields */
     counter = 3;
     SD_JOURNAL_FOREACH_DATA(j, data, length){
-        entry_fields[counter] = (char *) alloca( sizeof(char) * (length+1) );   // +1 for \0
-        strncpy(entry_fields[counter], data, length);
-        ((char *)(entry_fields[counter]))[length] = '\0';                       // set the \0 
-        total_length += length+1;                                               // +1 for \0
+        entry_fields[counter] = (char *) alloca( sizeof(char) * (length) );
+        memcpy (entry_fields[counter], (void *) data, length );
+        entry_fields_len[counter] = length;
+        total_length += length;
 
-        entry_fields_len[counter] = total_length;
-
-        if (strchr(entry_fields[counter], '\n') != NULL){
+        /* check if this is a multiline message when export format (default) is chosen */
+        if ((args->format == NULL || strcmp( args->format, "export" ) == 0) 
+            && memchr(entry_fields[counter], '\n', length) != NULL)
+        {
             char *field_name = strtok(entry_fields[counter], "=");
             int field_name_len = strlen(field_name);
-            int new_length = length+1+8;
-            int64_t new_length64 = new_length64;
+            int new_length = length+8;  // +8 for 64 bit integer
+            int64_t new_length64 = length - field_name_len - 1;
 
             entry_fields[counter] = (char *) alloca( sizeof(char) * new_length ); 
-            strcat ( entry_fields[counter], field_name );
-            strcat ( entry_fields[counter] + field_name_len, "\n" );
-            memcpy ( entry_fields[counter] + field_name_len + 1, (char *) &new_length64, sizeof(int64_t) );
-            strcat ( entry_fields[counter] + field_name_len + 1 + 8,  field_name + field_name_len + 1);
+            memcpy (entry_fields[counter], (void *) field_name, field_name_len);
+            *(entry_fields[counter] + field_name_len) = '\n';
+            memcpy ( entry_fields[counter] + field_name_len + 1, (char *) &new_length64, 8 );
+            memcpy ( entry_fields[counter] + field_name_len + 1 + 8, field_name + field_name_len + 1, length - field_name_len - 1 );
 
             entry_fields_len[counter] = new_length;
-            total_length += 8;                                               // +1 for \0
-
-            printf("%s\n", entry_fields[counter]);
+            total_length += 8;
         }
-
         counter++;
     }
 
     /* the data fields are merged together according to the given output format */
-    if( args->format == NULL || strcmp( args->format, "export" ) == 0 ){  
-        int final_length = total_length + counter;
-        char *entry_string = (char *) malloc( sizeof(char) * ( final_length ));   // counter+1 for additional \n
-        entry_string[0] = '\0';         // initial setup for strcat
+    if( args->format == NULL || strcmp( args->format, "export" ) == 0 || strcmp( args->format, "plain" ) == 0){  
+        *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter )); // counter times '\n'
+        int p = 0;
         for(i=0; i<counter; i++){
-            strncat ( entry_string, entry_fields[i], entry_fields_len[i] );
-            strcat ( entry_string, "\n" );
+            memcpy ( *entry_string + p, (void *) entry_fields[i], entry_fields_len[i] );
+            p += entry_fields_len[i];
+            *(*entry_string + p) = '\n';
+            p++;
         }
-        return entry_string;
+        *entry_string_size = p;
     }
-    if( strcmp( args->format, "json" ) == 0 ){  
-        char *entry_string = (char *) malloc( sizeof(char) * ( total_length + counter + 10*counter + 4 ));   // + counter for \n, +4 for {  }
-        char *entry_string_token;
-        entry_string[0] = '\0';         // initial setup for strcat
-        strcat ( entry_string, "{\n" );
-        for(i=0; i<counter; i++){
-            /* every field string is splitted into two parts for the json format */
-            strcat ( entry_string, "\t\"" );
-            entry_string_token = strchr ( entry_fields[i], '=' );
-            *entry_string_token = '\0';
-            strcat ( entry_string, entry_fields[i] );
-            strcat ( entry_string, "\" : \"" );
-            strcat ( entry_string, entry_string_token+1 );
-            strcat ( entry_string, "\"" );
-            if (i != counter-1)
-                strcat ( entry_string, ",\n" );
-            else
-                strcat ( entry_string, "\n" );
-        }
-        strcat ( entry_string, "}\n" );
-        return entry_string;
+    else{
+        *entry_string = ERROR;
+        *entry_string_size = strlen(ERROR);
     }
-    else
-        return ERROR;
+    return;
 }
 
 /* for measuring performance of the gateway */
@@ -521,26 +503,23 @@ static void *handler_routine (void *_args) {
 
         /* try to send new entry if there is one */
         if( rc == 1 ){
-            char *entry_string = get_entry_string( j, args ); 
-            if ( strcmp(entry_string, END) == 0 ){
+            size_t entry_string_size;
+            char *entry_string;
+            get_entry_string( j, args, &entry_string, &entry_string_size ); 
+            if ( memcmp(entry_string, END, strlen(END)) == 0 ){
                 send_flag_wrapper (j, args, query_handler, ctx, "query finished successfully", END);
                 benchmark(initial_time, log_counter);
                 return NULL;
             }
-            else if ( strcmp(entry_string, ERROR) == 0 ){
+            else if ( memcmp(entry_string, ERROR, strlen(ERROR)) == 0 ){
                 send_flag(args->client_ID, query_handler, ctx, ERROR);
                 sd_journal_close( j );
                 RequestMeta_destruct(args);
                 return NULL;
             }
-            else if ( strcmp(entry_string, IGNORE) == 0 ){
-                free (entry_string);
-                sd_journal_print(LOG_DEBUG, "field or entry size too large, log is ignored");
-            }
             /* no problems with the new entry, send it */
             else{
-                //printf("%s\n\n", entry_string);
-                zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string);
+                zmsg_t *entry_msg = build_entry_msg(args->client_ID, entry_string, entry_string_size);
                 free (entry_string);
                 zmsg_send (&entry_msg, query_handler);
                 log_counter++;
